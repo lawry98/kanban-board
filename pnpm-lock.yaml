@@ -44,9 +44,6 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      pg:
-        specifier: ^8.18.0
-        version: 8.18.0
       radix-ui:
         specifier: ^1.4.3
         version: 1.4.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -81,9 +78,6 @@ importers:
       '@types/node':
         specifier: ^20.19.33
         version: 20.19.33
-      '@types/pg':
-        specifier: ^8.16.0
-        version: 8.16.0
       '@types/react':
         specifier: ^19
         version: 19.2.14
@@ -2006,9 +2000,6 @@ packages:
 
   '@types/node@20.19.33':
     resolution: {integrity: sha512-Rs1bVAIdBs5gbTIKza/tgpMuG1k3U/UMJLWecIMxNdJFDMzcM5LOiLVRYh3PilWEYDIeUDv7bpiHPLPsbydGcw==}
-
-  '@types/pg@8.16.0':
-    resolution: {integrity: sha512-RmhMd/wD+CF8Dfo+cVIy3RR5cl8CyfXQ0tGgW6XBL8L4LM/UTEbNXYRbLwU6w+CgrKBNbrQWt4FUtTfaU5jSYQ==}
 
   '@types/phoenix@1.6.7':
     resolution: {integrity: sha512-oN9ive//QSBkf19rfDv45M7eZPi0eEXylht2OLEXicu5b4KoQ1OzXIw+xDSGWxSxe1JmepRR/ZH283vsu518/Q==}
@@ -6882,12 +6873,6 @@ snapshots:
   '@types/node@20.19.33':
     dependencies:
       undici-types: 6.21.0
-
-  '@types/pg@8.16.0':
-    dependencies:
-      '@types/node': 20.19.33
-      pg-protocol: 1.11.0
-      pg-types: 2.2.0
 
   '@types/phoenix@1.6.7': {}
 
