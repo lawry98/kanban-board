@@ -612,3 +612,5 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 10. **Don't commit `.env.local`** — it's in `.gitignore`.
 11. **Don't run git commands** — developer handles all git operations manually.
 12. **Don't edit applied Prisma migrations** — create a new migration instead.
+
+test
