@@ -5,3 +5,140 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum Priority {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum Action {
+  TASK_CREATED
+  TASK_MOVED
+  TASK_UPDATED
+  TASK_DELETED
+  COLUMN_CREATED
+  COLUMN_UPDATED
+  COLUMN_DELETED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model Profile {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  fullName  String?  @map("full_name")
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  boards        Board[]
+  boardMembers  BoardMember[]
+  tasksCreated  Task[]        @relation("TaskCreatedBy")
+  tasksAssigned Task[]        @relation("TaskAssignee")
+  activityLogs  ActivityLog[]
+
+  @@map("profiles")
+}
+
+model Board {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator      Profile       @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  members      BoardMember[]
+  columns      Column[]
+  tasks        Task[]
+  activityLogs ActivityLog[]
+
+  @@map("boards")
+}
+
+model BoardMember {
+  id       String   @id @default(uuid())
+  boardId  String   @map("board_id")
+  userId   String   @map("user_id")
+  role     Role     @default(VIEWER)
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, userId])
+  @@map("board_members")
+}
+
+model Column {
+  id        String   @id @default(uuid())
+  boardId   String   @map("board_id")
+  title     String
+  position  Int
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  board Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([boardId])
+  @@map("columns")
+}
+
+model Task {
+  id          String    @id @default(uuid())
+  columnId    String    @map("column_id")
+  boardId     String    @map("board_id")
+  title       String
+  description String?
+  position    Int
+  priority    Priority  @default(NONE)
+  labels      String[]
+  dueDate     DateTime? @map("due_date")
+  assigneeId  String?   @map("assignee_id")
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  column   Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  board    Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  assignee Profile? @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  creator  Profile  @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([columnId])
+  @@index([boardId])
+  @@index([assigneeId])
+  @@map("tasks")
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  boardId    String   @map("board_id")
+  userId     String   @map("user_id")
+  action     Action
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([boardId, createdAt])
+  @@map("activity_logs")
+}
