@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     'next-env.d.ts',
     'src/components/ui/**',
     'src/components/magicui/**',
+    'components/ui/**',
+    'components/magicui/**',
     'prisma/migrations/**',
   ]),
   {
