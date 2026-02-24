@@ -1,0 +1,7 @@
+{
+  "enabledMcpjsonServers": [
+    "shadcn",
+    "magicui"
+  ],
+  "enableAllProjectMcpServers": true
+}
