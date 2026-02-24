@@ -7,6 +7,7 @@ import { BlurFade } from '@/components/ui/blur-fade';
 import { BorderBeam } from '@/components/ui/border-beam';
 import { DotPattern } from '@/components/ui/dot-pattern';
 import { Separator } from '@/components/ui/separator';
+import { AnimatedThemeToggler } from '@/components/ui/animated-theme-toggler';
 import { createClient } from '@/lib/supabase/server';
 import { cn } from '@/lib/utils';
 
@@ -352,6 +353,7 @@ export default async function LandingPage() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <AnimatedThemeToggler className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" />
           <Button variant="ghost" size="sm" asChild>
             <Link href="/login">Sign in</Link>
           </Button>
