@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowRight, MousePointer2, Users, Zap } from 'lucide-react';
+import { ArrowRight, ChevronRight, MousePointer2, Users, Zap } from 'lucide-react';
 
+import { AnimatedGradientText } from '@/components/ui/animated-gradient-text';
 import { Button } from '@/components/ui/button';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { DotPattern } from '@/components/ui/dot-pattern';
@@ -368,8 +369,24 @@ export default async function LandingPage() {
         {/* ── Hero ──────────────────────────────────────────────────────────── */}
         <section className="flex flex-col items-center px-4 pb-14 pt-24 text-center">
           <BlurFade delay={0.1}>
-            <div className="mb-4 inline-flex items-center rounded-full border bg-background/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
-              Real-time collaborative project management
+            <div className="group relative mb-4 inline-flex items-center justify-center rounded-full px-4 py-1.5 shadow-[inset_0_-8px_10px_#8fdfff1f] transition-shadow duration-500 ease-out hover:shadow-[inset_0_-5px_10px_#8fdfff3f]">
+              <span
+                className={cn(
+                  'animate-gradient absolute inset-0 block h-full w-full rounded-[inherit] bg-gradient-to-r from-[#ffaa40]/50 via-[#9c40ff]/50 to-[#ffaa40]/50 bg-[length:300%_100%] p-[1px]',
+                )}
+                style={{
+                  WebkitMask:
+                    'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                  WebkitMaskComposite: 'destination-out',
+                  mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                  maskComposite: 'subtract',
+                  WebkitClipPath: 'padding-box',
+                }}
+              />
+              <AnimatedGradientText className="text-sm font-medium">
+                Real-time collaborative project management
+              </AnimatedGradientText>
+              <ChevronRight className="ml-1 size-4 stroke-neutral-500 transition-transform duration-300 ease-in-out group-hover:translate-x-0.5" />
             </div>
           </BlurFade>
 
