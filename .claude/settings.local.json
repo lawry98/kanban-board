@@ -1,7 +1,18 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(cd /c/projects/kanban-board/kanban-board && pnpm typecheck 2>&1)",
+      "Bash(cd /c/projects/kanban-board/kanban-board && pnpm lint 2>&1)",
+      "Bash(cd /c/projects/kanban-board/kanban-board && pnpm build 2>&1)",
+      "Bash(cd /c/projects/kanban-board/kanban-board && node -e \"\nconst { PrismaPg } = require\\('@prisma/adapter-pg'\\);\nconst p = new PrismaPg\\({ connectionString: 'postgresql://test:test@localhost:5432/test' }\\);\nconsole.log\\('created ok'\\);\n\" 2>&1)",
+      "mcp__magicui__getSpecialEffects"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "shadcn",
     "magicui"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
