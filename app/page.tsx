@@ -4,7 +4,6 @@ import { ArrowRight, MousePointer2, Users, Zap } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { BlurFade } from '@/components/ui/blur-fade';
-import { BorderBeam } from '@/components/ui/border-beam';
 import { DotPattern } from '@/components/ui/dot-pattern';
 import { Separator } from '@/components/ui/separator';
 import { AnimatedThemeToggler } from '@/components/ui/animated-theme-toggler';
@@ -415,15 +414,6 @@ export default async function LandingPage() {
               {/* Outer wrapper handles horizontal overflow on small screens */}
               <div className="overflow-x-auto">
                 <div className="relative min-w-[680px] rounded-xl border bg-background shadow-2xl shadow-black/5 dark:shadow-black/20">
-                  {/* Animated border beam */}
-                  <BorderBeam
-                    size={280}
-                    duration={10}
-                    colorFrom="#6366f1"
-                    colorTo="#8b5cf6"
-                    borderWidth={1.5}
-                  />
-
                   {/* Window chrome */}
                   <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2.5">
                     <div className="flex items-center gap-1.5">
