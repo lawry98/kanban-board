@@ -5,6 +5,7 @@ import { ArrowRight, MousePointer2, Users, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { DotPattern } from '@/components/ui/dot-pattern';
+import { PulsatingButton } from '@/components/ui/pulsating-button';
 import { Separator } from '@/components/ui/separator';
 import { AnimatedThemeToggler } from '@/components/ui/animated-theme-toggler';
 import { createClient } from '@/lib/supabase/server';
@@ -553,13 +554,13 @@ export default async function LandingPage() {
               <p className="mx-auto mt-4 max-w-md text-base text-muted-foreground">
                 Create your first board in seconds. Free to use, no credit card required.
               </p>
-              <div className="mt-8">
-                <Button size="lg" className="h-11 px-8" asChild>
-                  <Link href="/register">
+              <div className="mt-8 flex justify-center">
+                <Link href="/register">
+                  <PulsatingButton className="inline-flex h-11 items-center gap-2 px-8 text-sm font-medium" pulseColor="#6366f1">
                     Get started for free
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
+                    <ArrowRight className="h-4 w-4" />
+                  </PulsatingButton>
+                </Link>
               </div>
             </BlurFade>
           </div>
