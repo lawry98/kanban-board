@@ -5,6 +5,7 @@ import { ArrowRight, MousePointer2, Users, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { DotPattern } from '@/components/ui/dot-pattern';
+import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import { PulsatingButton } from '@/components/ui/pulsating-button';
 import { Separator } from '@/components/ui/separator';
 import { AnimatedThemeToggler } from '@/components/ui/animated-theme-toggler';
@@ -390,9 +391,11 @@ export default async function LandingPage() {
 
           <BlurFade delay={0.4}>
             <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
-              <Button size="lg" className="h-11 px-7" asChild>
-                <Link href="/register">Get started for free</Link>
-              </Button>
+              <Link href="/register">
+                <InteractiveHoverButton className="h-11 text-sm">
+                  Get started for free
+                </InteractiveHoverButton>
+              </Link>
               <Button size="lg" variant="outline" className="h-11 px-7" asChild>
                 {/* Plain <a> for in-page anchor — no Next.js routing needed */}
                 <a href="#preview">See it in action</a>
