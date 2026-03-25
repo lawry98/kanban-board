@@ -46,7 +46,7 @@
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
   --animate-gradient: gradient 8s linear infinite;
-  --animate-pulse: pulse var(--duration) ease-out infinite;
+  --animate-pulse-ring: pulse-ring var(--duration) ease-out infinite;
 
   @keyframes gradient {
     to {
@@ -54,7 +54,7 @@
     }
   }
 
-  @keyframes pulse {
+  @keyframes pulse-ring {
     0%,
     100% {
       box-shadow: 0 0 0 0 var(--pulse-color);
