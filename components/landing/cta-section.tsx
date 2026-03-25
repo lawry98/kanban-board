@@ -16,12 +16,10 @@ export function CtaSection() {
             Create your first board in seconds. Free to use, no credit card required.
           </p>
           <div className="mt-8 flex justify-center">
-            <Link href="/register">
-              <PulsatingButton className="inline-flex h-11 items-center gap-2 px-8 text-sm font-medium" pulseColor="#6366f1">
-                Get started for free
-                <ArrowRight className="h-4 w-4" />
-              </PulsatingButton>
-            </Link>
+            <PulsatingButton as={Link} href="/register" className="inline-flex h-11 items-center gap-2 px-8 text-sm font-medium" pulseColor="#6366f1">
+              Get started for free
+              <ArrowRight className="h-4 w-4" />
+            </PulsatingButton>
           </div>
         </BlurFade>
       </div>
