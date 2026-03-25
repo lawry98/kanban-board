@@ -50,11 +50,9 @@ export function HeroSection() {
 
       <BlurFade delay={0.4}>
         <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
-          <Link href="/register">
-            <InteractiveHoverButton className="h-11 text-sm">
-              Get started for free
-            </InteractiveHoverButton>
-          </Link>
+          <InteractiveHoverButton as={Link} href="/register" className="h-11 text-sm">
+            Get started for free
+          </InteractiveHoverButton>
           <Button size="lg" variant="outline" className="h-11 px-7" asChild>
             <a href="#preview">See it in action</a>
           </Button>
