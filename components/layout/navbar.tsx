@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
+import { AnimatedThemeToggler } from '@/components/ui/animated-theme-toggler';
 import { UserMenu } from '@/components/layout/user-menu';
 
 interface NavbarProps {
@@ -41,8 +42,11 @@ export function Navbar({ user, breadcrumb }: NavbarProps) {
           )}
         </div>
 
-        {/* Right: User menu */}
-        <UserMenu name={user.name} email={user.email} avatarUrl={user.avatarUrl} />
+        {/* Right: Theme toggle + User menu */}
+        <div className="flex items-center gap-1">
+          <AnimatedThemeToggler className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" />
+          <UserMenu name={user.name} email={user.email} avatarUrl={user.avatarUrl} />
+        </div>
       </div>
     </header>
   );
