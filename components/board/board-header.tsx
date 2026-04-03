@@ -22,14 +22,25 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { BoardFilters } from '@/components/board/board-filters';
 import { addBoardMember, updateBoard } from '@/app/actions/board-actions';
 import { useBoardContext } from '@/contexts/board-context';
 
 interface BoardHeaderProps {
   onOpenActivity: () => void;
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+  priorityFilter: string;
+  onPriorityFilterChange: (priority: string) => void;
 }
 
-export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
+export function BoardHeader({
+  onOpenActivity,
+  searchQuery,
+  onSearchChange,
+  priorityFilter,
+  onPriorityFilterChange,
+}: BoardHeaderProps) {
   const { state, board, isOwner, canEdit } = useBoardContext();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(board.title);
@@ -105,6 +116,13 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           {state.columns.length} columns · {taskCount} tasks
         </p>
       </div>
+
+      <BoardFilters
+        searchQuery={searchQuery}
+        onSearchChange={onSearchChange}
+        priorityFilter={priorityFilter}
+        onPriorityFilterChange={onPriorityFilterChange}
+      />
 
       <div className="flex items-center gap-3">
         {/* Member avatars */}
