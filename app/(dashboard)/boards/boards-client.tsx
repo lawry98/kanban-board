@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { CreateBoardDialog } from '@/components/board/create-board-dialog';
@@ -56,13 +57,19 @@ export function BoardsClient({ boards }: BoardsClientProps) {
           {boards.map((board, index) => (
             <BlurFade key={board.id} delay={0.05 * index}>
               <Link href={`/board/${board.id}`} className="block group">
-                <Card className="h-full transition-shadow hover:shadow-md cursor-pointer">
+                <Card className="h-full transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-foreground/15 cursor-pointer">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle className="text-base font-medium leading-tight line-clamp-2">
                         {board.title}
                       </CardTitle>
-                      <Badge variant="outline" className="shrink-0 text-xs capitalize">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'shrink-0 text-xs capitalize',
+                          board.role === 'OWNER' && 'border-primary/30 text-primary',
+                        )}
+                      >
                         {board.role.toLowerCase()}
                       </Badge>
                     </div>
@@ -116,10 +123,12 @@ export function BoardsClient({ boards }: BoardsClientProps) {
           <BlurFade delay={0.05 * boards.length}>
             <button
               onClick={() => setDialogOpen(true)}
-              className="flex h-full min-h-[140px] w-full items-center justify-center rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+              className="flex h-full min-h-[140px] w-full items-center justify-center rounded-xl border-2 border-dashed text-muted-foreground transition-all duration-200 hover:border-primary/30 hover:text-foreground hover:bg-primary/3 hover:shadow-sm"
             >
               <div className="flex flex-col items-center gap-2">
-                <Plus className="h-5 w-5" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                  <Plus className="h-5 w-5" />
+                </div>
                 <span className="text-sm font-medium">New board</span>
               </div>
             </button>
