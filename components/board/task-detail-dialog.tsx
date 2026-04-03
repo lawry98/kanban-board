@@ -121,110 +121,115 @@ function TaskForm({ task, onClose }: TaskFormProps) {
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Title */}
-          <div className="space-y-1">
-            <Label>Title</Label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              disabled={!canEdit}
-              className="text-base font-medium"
-            />
-          </div>
-
-          {/* Description */}
-          <div className="space-y-1">
-            <Label>Description</Label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={!canEdit}
-              rows={3}
-              placeholder="Add a description…"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {/* Priority */}
+          {/* Core information */}
+          <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Priority</Label>
-              <Select value={priority} onValueChange={setPriority} disabled={!canEdit}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PRIORITY_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Column */}
-            <div className="space-y-1">
-              <Label>Column</Label>
-              <Select value={columnId} onValueChange={setColumnId} disabled={!canEdit}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {state.columns.map((col) => (
-                    <SelectItem key={col.id} value={col.id}>
-                      {col.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Assignee */}
-            <div className="space-y-1">
-              <Label>Assignee</Label>
-              <Select value={assigneeId} onValueChange={setAssigneeId} disabled={!canEdit}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Unassigned" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Unassigned</SelectItem>
-                  {state.members.map((member) => {
-                    const name = member.profile.fullName ?? member.profile.email;
-                    return (
-                      <SelectItem key={member.userId} value={member.userId}>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-4 w-4">
-                            {member.profile.avatarUrl && (
-                              <AvatarImage src={member.profile.avatarUrl} alt={name} />
-                            )}
-                            <AvatarFallback className="text-[8px]">
-                              {name.slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          {name}
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Due date */}
-            <div className="space-y-1">
-              <Label>Due date</Label>
+              <Label>Title</Label>
               <Input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
                 disabled={!canEdit}
+                className="text-base font-medium"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Description</Label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                disabled={!canEdit}
+                rows={3}
+                placeholder="Add a description…"
               />
             </div>
           </div>
 
+          <Separator />
+
+          {/* Properties */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Properties</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Priority</Label>
+                <Select value={priority} onValueChange={setPriority} disabled={!canEdit}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(PRIORITY_LABELS).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Column</Label>
+                <Select value={columnId} onValueChange={setColumnId} disabled={!canEdit}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {state.columns.map((col) => (
+                      <SelectItem key={col.id} value={col.id}>
+                        {col.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Assignee</Label>
+                <Select value={assigneeId} onValueChange={setAssigneeId} disabled={!canEdit}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned</SelectItem>
+                    {state.members.map((member) => {
+                      const name = member.profile.fullName ?? member.profile.email;
+                      return (
+                        <SelectItem key={member.userId} value={member.userId}>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-4 w-4">
+                              {member.profile.avatarUrl && (
+                                <AvatarImage src={member.profile.avatarUrl} alt={name} />
+                              )}
+                              <AvatarFallback className="text-[8px]">
+                                {name.slice(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            {name}
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Due date</Label>
+                <Input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  disabled={!canEdit}
+                />
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
           {/* Labels */}
-          <div className="space-y-2">
-            <Label>Labels</Label>
+          <div className="space-y-3">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Labels</h4>
             <div className="flex flex-wrap gap-1 min-h-[28px]">
               {labels.map((label) => (
                 <Badge key={label} variant="secondary" className="gap-1 pr-1">
@@ -261,7 +266,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           <Separator />
 
           {/* Meta */}
-          <div className="text-xs text-muted-foreground space-y-1">
+          <div className="text-xs text-muted-foreground">
             <p>
               Created by {creatorName} ·{' '}
               {format(new Date(task.createdAt), 'MMM d, yyyy')}
@@ -270,26 +275,28 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
           {/* Actions */}
           {canEdit && (
-            <div className="flex justify-between pt-2">
-              {(canEdit || isOwner) && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {isDeleting ? 'Deleting…' : 'Delete'}
-                </Button>
-              )}
-              <div className="flex gap-2 ml-auto">
-                <Button variant="outline" size="sm" onClick={onClose}>
+            <div className="space-y-3 pt-1">
+              <div className="flex gap-2 justify-end">
+                <Button variant="ghost" size="sm" onClick={onClose}>
                   Cancel
                 </Button>
                 <Button size="sm" onClick={handleSave} disabled={isSaving || !title.trim()}>
                   {isSaving ? 'Saving…' : 'Save changes'}
                 </Button>
               </div>
+
+              {(canEdit || isOwner) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" />
+                  {isDeleting ? 'Deleting…' : 'Delete task'}
+                </Button>
+              )}
             </div>
           )}
         </div>
