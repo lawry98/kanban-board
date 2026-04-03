@@ -16,6 +16,22 @@ export const PRIORITY_LABELS: Record<Priority, string> = {
   URGENT: 'Urgent',
 } as const;
 
+export const PRIORITY_BORDER_COLORS: Record<Priority, string> = {
+  NONE: 'border-l-transparent',
+  LOW: 'border-l-blue-400 dark:border-l-blue-500',
+  MEDIUM: 'border-l-yellow-400 dark:border-l-yellow-500',
+  HIGH: 'border-l-orange-400 dark:border-l-orange-500',
+  URGENT: 'border-l-red-400 dark:border-l-red-500',
+} as const;
+
+export const PRIORITY_ICONS: Record<Priority, string> = {
+  NONE: '',
+  LOW: '\u2193',
+  MEDIUM: '\u2013',
+  HIGH: '\u2191',
+  URGENT: '!!',
+} as const;
+
 export const DEFAULT_COLUMNS = [
   { title: 'To Do', color: '#6366f1' },
   { title: 'In Progress', color: '#f59e0b' },
