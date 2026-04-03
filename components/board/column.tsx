@@ -17,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TaskCard } from '@/components/board/task-card';
+import { cn } from '@/lib/utils';
 import { updateColumn, deleteColumn } from '@/app/actions/column-actions';
 import { createTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
@@ -25,9 +26,10 @@ import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
 interface ColumnProps {
   column: ColumnWithTasks;
   onTaskClick: (task: TaskWithAssignee) => void;
+  isDragging?: boolean;
 }
 
-export function Column({ column, onTaskClick }: ColumnProps) {
+export function Column({ column, onTaskClick, isDragging = false }: ColumnProps) {
   const { board, dispatch, canEdit } = useBoardContext();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(column.title);
@@ -83,7 +85,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   }
 
   return (
-    <div className="flex w-72 shrink-0 flex-col gap-2">
+    <div className="group/column flex w-72 shrink-0 flex-col gap-2">
       {/* Column header */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -127,7 +129,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
         {canEdit && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 opacity-40 group-hover/column:opacity-100 focus-visible:opacity-100 transition-opacity">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -158,9 +160,10 @@ export function Column({ column, onTaskClick }: ColumnProps) {
       <Droppable droppableId={column.id}>
         {(provided, snapshot) => (
           <ScrollArea
-            className={`rounded-lg border bg-muted/30 transition-colors ${
-              snapshot.isDraggingOver ? 'bg-muted/60' : ''
-            }`}
+            className={cn(
+              'rounded-lg border bg-muted/30 transition-colors',
+              snapshot.isDraggingOver && 'bg-muted/60 ring-2 ring-primary/20 ring-inset',
+            )}
           >
             <div
               ref={provided.innerRef}
@@ -168,7 +171,15 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               className="flex flex-col gap-2 p-2 min-h-[60px]"
             >
               {column.tasks.length === 0 && !snapshot.isDraggingOver && (
-                <p className="text-xs text-muted-foreground text-center py-4">No tasks yet</p>
+                isDragging ? (
+                  <div className="flex items-center justify-center py-6 border-2 border-dashed border-primary/25 rounded-md mx-1 text-xs text-primary/50">
+                    Drop here
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground/60 text-center py-6">
+                    No tasks
+                  </p>
+                )
               )}
 
               {column.tasks.map((task, index) => (
@@ -224,7 +235,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start text-muted-foreground hover:text-foreground"
+              className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted/50"
               onClick={() => setIsAddingTask(true)}
             >
               <Plus className="mr-2 h-4 w-4" />
