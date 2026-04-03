@@ -3,12 +3,18 @@
 import { memo } from 'react';
 import { Draggable } from '@hello-pangea/dnd';
 import { formatDistanceToNow } from 'date-fns';
-import { Clock, AlertCircle } from 'lucide-react';
+import { Clock, AlertCircle, GripVertical } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { PRIORITY_COLORS, PRIORITY_LABELS } from '@/lib/constants';
+import { PRIORITY_COLORS, PRIORITY_LABELS, PRIORITY_BORDER_COLORS, PRIORITY_ICONS } from '@/lib/constants';
 import type { TaskWithAssignee } from '@/types';
 
 interface TaskCardProps {
@@ -35,19 +41,30 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
           {...provided.draggableProps}
           {...provided.dragHandleProps}
           onClick={() => onClick(task)}
+          aria-label={`Task: ${task.title}${task.priority !== 'NONE' ? `, ${PRIORITY_LABELS[task.priority]} priority` : ''}${isOverdue ? ', overdue' : ''}`}
           className={cn(
-            'group rounded-md border bg-card p-3 text-sm shadow-sm cursor-pointer',
-            'transition-shadow hover:shadow-md',
-            snapshot.isDragging && 'rotate-1 shadow-lg ring-1 ring-primary/20',
+            'group relative rounded-md border border-l-[3px] bg-card p-3 text-sm shadow-sm cursor-grab',
+            'transition-all hover:shadow-md hover:border-foreground/15 dark:hover:border-foreground/20',
+            PRIORITY_BORDER_COLORS[task.priority],
+            snapshot.isDragging && 'rotate-1 shadow-lg ring-1 ring-primary/20 cursor-grabbing',
           )}
         >
+          {/* Drag affordance — decorative only, full card is draggable */}
+          <GripVertical
+            aria-hidden="true"
+            className="absolute -left-0.5 top-3 h-4 w-4 text-muted-foreground/0 group-hover:text-muted-foreground/40 transition-colors"
+          />
+
           {/* Priority badge */}
           {task.priority !== 'NONE' && (
-            <div className="mb-2">
+            <div className="mb-1.5">
               <Badge
                 variant="outline"
                 className={cn('text-xs py-0 px-1.5', PRIORITY_COLORS[task.priority])}
               >
+                {PRIORITY_ICONS[task.priority] && (
+                  <span aria-hidden="true" className="mr-0.5">{PRIORITY_ICONS[task.priority]}</span>
+                )}
                 {PRIORITY_LABELS[task.priority]}
               </Badge>
             </div>
@@ -94,12 +111,21 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
               )}
 
               {task.assignee && (
-                <Avatar className="h-5 w-5">
-                  {task.assignee.avatarUrl && (
-                    <AvatarImage src={task.assignee.avatarUrl} alt={assigneeName ?? ''} />
-                  )}
-                  <AvatarFallback className="text-[10px]">{assigneeInitials}</AvatarFallback>
-                </Avatar>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Avatar className="h-6 w-6">
+                        {task.assignee.avatarUrl && (
+                          <AvatarImage src={task.assignee.avatarUrl} alt={assigneeName ?? ''} />
+                        )}
+                        <AvatarFallback className="text-[10px]">{assigneeInitials}</AvatarFallback>
+                      </Avatar>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{assigneeName}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
             </div>
           )}
