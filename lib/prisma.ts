@@ -4,9 +4,15 @@ import { PrismaPg } from '@prisma/adapter-pg';
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
 function createPrismaClient() {
+  const connectionString = process.env.DATABASE_URL;
+
+  // Hosted Supabase requires SSL with its self-signed cert; a local Supabase/Postgres
+  // instance has no SSL at all. Opt out with `?sslmode=disable` in the connection string.
+  const sslDisabled = connectionString?.includes('sslmode=disable') ?? false;
+
   const adapter = new PrismaPg({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    connectionString,
+    ssl: sslDisabled ? false : { rejectUnauthorized: false },
   });
   return new PrismaClient({ adapter });
 }
