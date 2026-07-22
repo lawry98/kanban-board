@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@/lib/constants';
+import { useBoardContext } from '@/contexts/board-context';
 import type { TaskWithAssignee } from '@/types';
 
 interface TaskCardProps {
@@ -18,6 +19,10 @@ interface TaskCardProps {
 }
 
 export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCardProps) {
+  // Viewers can open a card (read-only) but not drag it. `canEdit` is reactive to
+  // live membership, so a demotion disables dragging without a reload. Consuming
+  // context here bypasses React.memo for role changes, which is what we want.
+  const { canEdit } = useBoardContext();
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
   const assigneeName = task.assignee?.fullName ?? undefined;
   const assigneeInitials = assigneeName
@@ -28,7 +33,7 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
     .slice(0, 2);
 
   return (
-    <Draggable draggableId={task.id} index={index}>
+    <Draggable draggableId={task.id} index={index} isDragDisabled={!canEdit}>
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
@@ -36,8 +41,9 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
           {...provided.dragHandleProps}
           onClick={() => onClick(task)}
           className={cn(
-            'group bg-card cursor-pointer rounded-md border p-3 text-sm shadow-sm',
+            'group bg-card rounded-md border p-3 text-sm shadow-sm',
             'transition-shadow hover:shadow-md',
+            canEdit ? 'cursor-pointer' : 'cursor-default',
             snapshot.isDragging && 'ring-primary/20 rotate-1 shadow-lg ring-1',
           )}
         >

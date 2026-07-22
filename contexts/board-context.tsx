@@ -333,8 +333,14 @@ export function BoardProvider({ children, board, currentUserId, userRole }: Boar
     members: board.members,
   });
 
-  const canEdit = userRole === 'OWNER' || userRole === 'EDITOR';
-  const isOwner = userRole === 'OWNER';
+  // Derive the current user's role from live membership so a role change pushed
+  // over realtime takes effect without a reload — e.g. a demotion to VIEWER
+  // disables dragging/editing immediately. Falls back to the server-provided
+  // `userRole` if the member row hasn't synced yet. (A removed member is
+  // redirected away by useRealtime, so absence-after-sync isn't handled here.)
+  const currentRole = state.members.find((m) => m.userId === currentUserId)?.role ?? userRole;
+  const canEdit = currentRole === 'OWNER' || currentRole === 'EDITOR';
+  const isOwner = currentRole === 'OWNER';
 
   // An inline object literal here would be a new value on every render, so
   // every column and every card would re-render on every dispatch regardless
