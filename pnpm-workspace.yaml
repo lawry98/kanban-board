@@ -1,7 +1,13 @@
 allowBuilds:
   '@prisma/engines': true
   esbuild: true
-  msw: true
   prisma: true
-  sharp: true
   unrs-resolver: true
+  # Transitive only, never imported by this repo. pnpm 11 refuses to install
+  # while a package with a build script is unlisted, so these are explicitly
+  # denied rather than removed.
+  # msw: pulled in by @vitest/mocker and shadcn; we do not mock at the network layer.
+  msw: false
+  # sharp: optional native image backend for `next start` when self-hosting.
+  # Vercel does its own image optimization, but keep it buildable for local prod runs.
+  sharp: true

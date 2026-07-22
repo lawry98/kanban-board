@@ -7,22 +7,31 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: ['./src/__tests__/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    setupFiles: ['./test/setup.ts'],
+    // App code lives at the repo root (app/, components/, lib/, hooks/, contexts/),
+    // so tests may live anywhere except build/vendor output.
+    include: ['**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['**/node_modules/**', '.next/**', 'coverage/**', 'prisma/migrations/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
-        'node_modules/',
-        'src/components/ui/',
-        'src/components/magicui/',
-        'prisma/',
+        'node_modules/**',
+        '.next/**',
+        'coverage/**',
+        'components/ui/**',
+        'components/magicui/**',
+        'prisma/**',
+        'test/**',
+        '**/*.config.{ts,mts,mjs}',
+        'next-env.d.ts',
       ],
     },
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
+      // Must match tsconfig.json `paths`: "@/*" -> "./*" (repo root, no src/).
+      '@': resolve(__dirname, '.'),
     },
   },
 });
