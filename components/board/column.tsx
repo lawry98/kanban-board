@@ -5,6 +5,16 @@ import { Droppable } from '@hello-pangea/dnd';
 import { MoreHorizontal, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -34,6 +44,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   async function handleRenameColumn() {
@@ -143,7 +154,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleDeleteColumn}
+                onClick={() => setConfirmDeleteOpen(true)}
                 className="text-destructive focus:text-destructive"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -233,6 +244,23 @@ export function Column({ column, onTaskClick }: ColumnProps) {
           )}
         </div>
       )}
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this column?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="text-foreground font-medium">{column.title}</span> and its{' '}
+              {column.tasks.length} task{column.tasks.length === 1 ? '' : 's'} will be permanently
+              deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteColumn}>Delete column</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

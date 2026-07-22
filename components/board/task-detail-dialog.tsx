@@ -5,6 +5,17 @@ import { format } from 'date-fns';
 import { Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,7 +47,7 @@ interface TaskFormProps {
 }
 
 function TaskForm({ task, onClose }: TaskFormProps) {
-  const { state, dispatch, canEdit, isOwner } = useBoardContext();
+  const { state, dispatch, canEdit } = useBoardContext();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
   const [priority, setPriority] = useState<string>(task.priority);
@@ -270,17 +281,27 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           {/* Actions */}
           {canEdit && (
             <div className="flex justify-between pt-2">
-              {(canEdit || isOwner) && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {isDeleting ? 'Deleting…' : 'Delete'}
-                </Button>
-              )}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={isDeleting}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {isDeleting ? 'Deleting…' : 'Delete'}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      <span className="text-foreground font-medium">{task.title}</span> will be
+                      permanently deleted. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete}>Delete task</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               <div className="ml-auto flex gap-2">
                 <Button variant="outline" size="sm" onClick={onClose}>
                   Cancel
