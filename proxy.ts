@@ -11,7 +11,7 @@ import type { NextRequest } from 'next/server';
  * as `app/(dashboard)/` are NOT URL segments, so a prefix allowlist would silently
  * leave every newly added dashboard route unprotected at the edge.
  */
-export const PUBLIC_ROUTES = ['/', '/login', '/register'] as const;
+export const PUBLIC_ROUTES = ['/', '/login', '/register', '/forgot-password'] as const;
 
 /**
  * Public prefixes — everything below these paths is reachable without a session.

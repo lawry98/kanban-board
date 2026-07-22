@@ -34,13 +34,16 @@ function RegisterForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // Set only when sign-up succeeds but no session was issued (email confirmation
+  // enabled) — drives the "check your email" panel instead of a false redirect.
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setIsLoading(true);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -55,9 +58,27 @@ function RegisterForm() {
       return;
     }
 
-    toast.success('Account created! Check your email to confirm.');
-    router.push(next as Route);
-    router.refresh();
+    // With confirmations enabled, Supabase obscures an already-registered email by
+    // returning a user with an empty `identities` array and no error. Surface that as
+    // a soft failure rather than a misleading "check your email".
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      toast.error('An account with this email already exists. Try signing in instead.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (data.session) {
+      // Confirmations disabled (or the address was auto-confirmed): the user has a
+      // live session now, so send them on to their destination.
+      router.push(next as Route);
+      router.refresh();
+      return;
+    }
+
+    // Confirmations enabled: there is no session yet. Redirecting into a protected
+    // route would just bounce back to /login, so show a confirmation panel instead.
+    setConfirmationEmail(email);
+    setIsLoading(false);
   }
 
   async function handleOAuthLogin() {
@@ -69,6 +90,26 @@ function RegisterForm() {
       },
     });
     if (error) toast.error(error.message);
+  }
+
+  if (confirmationEmail) {
+    return (
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl">Check your email</CardTitle>
+          <CardDescription>
+            We sent a confirmation link to{' '}
+            <span className="text-foreground font-medium">{confirmationEmail}</span>. Click it to
+            activate your account, then sign in.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline" className="w-full">
+            <Link href="/login">Back to sign in</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
