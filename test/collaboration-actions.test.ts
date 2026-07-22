@@ -22,8 +22,14 @@ vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
 
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
-import { acceptInvitation, revokeInvitation } from '@/app/actions/invitation-actions';
+import {
+  acceptInvitation,
+  createInvitation,
+  getInvitations,
+  revokeInvitation,
+} from '@/app/actions/invitation-actions';
 import { changeMemberRole, leaveBoard } from '@/app/actions/board-actions';
+import { Prisma } from '@prisma/client';
 
 // Valid UUIDs — the actions `uuidSchema.parse()` every client-supplied id.
 const BOARD_A = '11111111-1111-4111-8111-111111111111';
@@ -126,6 +132,37 @@ describe('acceptInvitation', () => {
     expect(result).toEqual({ error: 'This invite link is no longer valid' });
     expect(db.invitation.findUnique).not.toHaveBeenCalled();
   });
+
+  it('creates the membership at the invite role and logs MEMBER_ADDED', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ role: 'VIEWER' }));
+    db.boardMember.findFirst.mockResolvedValue(null); // not yet a member
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ data: { boardId: BOARD_A } });
+    expect(db.boardMember.create).toHaveBeenCalledWith({
+      data: { boardId: BOARD_A, userId: USER_ID, role: 'VIEWER' },
+    });
+    expect(db.activityLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: 'MEMBER_ADDED' }) }),
+    );
+  });
+
+  it('treats a P2002 unique-violation race as already-a-member', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ data: { boardId: BOARD_A } });
+  });
 });
 
 describe('revokeInvitation', () => {
@@ -151,6 +188,52 @@ describe('revokeInvitation', () => {
     const result = await revokeInvitation(INVITATION_ID);
 
     expect(result).toEqual({ error: 'Invite link not found' });
+  });
+});
+
+describe('createInvitation', () => {
+  it('persists role + inviter and returns a generated token (owner-only)', async () => {
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+    db.invitation.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: INVITATION_ID, ...data }),
+    );
+
+    const result = await createInvitation(BOARD_A, { role: 'EDITOR' });
+
+    expect('data' in result && result.data).toBeTruthy();
+    const created = db.invitation.create.mock.calls[0][0].data;
+    expect(created.boardId).toBe(BOARD_A);
+    expect(created.role).toBe('EDITOR');
+    expect(created.invitedBy).toBe(USER_ID);
+    // Unguessable server-generated token, never client input.
+    expect(typeof created.token).toBe('string');
+    expect(created.token.length).toBeGreaterThan(16);
+  });
+
+  it('rejects a non-owner caller before creating anything', async () => {
+    db.boardMember.findFirst.mockResolvedValue(null);
+
+    const result = await createInvitation(BOARD_A, { role: 'EDITOR' });
+
+    expect(result).toEqual({ error: 'Forbidden' });
+    expect(db.invitation.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('getInvitations', () => {
+  it('queries only active links (non-revoked, non-expired) for the board', async () => {
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+    db.invitation.findMany.mockResolvedValue([]);
+
+    const result = await getInvitations(BOARD_A);
+
+    expect(result).toEqual({ data: [] });
+    const where = db.invitation.findMany.mock.calls[0][0].where;
+    expect(where.boardId).toBe(BOARD_A);
+    expect(where.revokedAt).toBeNull();
+    // Expiry filter: null (never expires) OR still in the future.
+    expect(Array.isArray(where.OR)).toBe(true);
+    expect(where.OR).toContainEqual({ expiresAt: null });
   });
 });
 
@@ -192,6 +275,37 @@ describe('changeMemberRole', () => {
     expect(result.error).toBeDefined();
     expect(db.boardMember.update).not.toHaveBeenCalled();
   });
+
+  it('updates a non-owner member and logs MEMBER_ROLE_CHANGED with their email', async () => {
+    const updated = makeMember({ id: 'member-2', userId: TARGET_ID, role: 'VIEWER' });
+    db.boardMember.findFirst
+      .mockResolvedValueOnce(makeMember({ role: 'OWNER' })) // caller is owner
+      .mockResolvedValueOnce(
+        makeMember({
+          id: 'member-2',
+          userId: TARGET_ID,
+          role: 'EDITOR',
+          profile: { email: 'target@x.io' },
+        }),
+      );
+    db.boardMember.update.mockResolvedValue(updated);
+
+    const result = await changeMemberRole(BOARD_A, TARGET_ID, { role: 'VIEWER' });
+
+    expect(result).toEqual({ data: updated });
+    expect(db.boardMember.update).toHaveBeenCalledWith({
+      where: { id: 'member-2' },
+      data: { role: 'VIEWER' },
+    });
+    expect(db.activityLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'MEMBER_ROLE_CHANGED',
+          metadata: { email: 'target@x.io', role: 'VIEWER' },
+        }),
+      }),
+    );
+  });
 });
 
 describe('leaveBoard', () => {
@@ -207,5 +321,20 @@ describe('leaveBoard', () => {
       error: 'Cannot leave as the last owner — promote another owner first',
     });
     expect(db.boardMember.delete).not.toHaveBeenCalled();
+  });
+
+  it('lets a non-owner leave — deletes their membership and logs MEMBER_REMOVED', async () => {
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ id: 'member-self', role: 'EDITOR' }));
+    db.boardMember.delete.mockResolvedValue({ id: 'member-self' });
+
+    const result = await leaveBoard(BOARD_A);
+
+    // redirect() is mocked to a no-op, so the action returns past it.
+    expect(result).toEqual({ data: { id: BOARD_A } });
+    expect(db.boardMember.count).not.toHaveBeenCalled(); // no last-owner check for a non-owner
+    expect(db.boardMember.delete).toHaveBeenCalledWith({ where: { id: 'member-self' } });
+    expect(db.activityLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: 'MEMBER_REMOVED' }) }),
+    );
   });
 });
