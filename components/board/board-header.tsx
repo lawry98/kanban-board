@@ -4,16 +4,6 @@ import { useState } from 'react';
 import { Activity, MoreHorizontal, Share2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { MembersDialog } from '@/components/board/members-dialog';
 import { ShareBoardDialog } from '@/components/board/share-board-dialog';
 import { deleteBoard, updateBoard } from '@/app/actions/board-actions';
@@ -177,22 +168,21 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
       <MembersDialog open={membersOpen} onOpenChange={setMembersOpen} />
 
       {isOwner && (
-        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this board?</AlertDialogTitle>
-              <AlertDialogDescription>
-                <span className="text-foreground font-medium">{board.title}</span> and all its
-                columns, tasks, members, and activity will be permanently deleted. This cannot be
-                undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDeleteBoard}>Delete board</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <ConfirmDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          title="Delete this board?"
+          description={
+            <>
+              <span className="text-foreground font-medium">{board.title}</span> and all its
+              columns, tasks, members, and activity will be permanently deleted. This cannot be
+              undone.
+            </>
+          }
+          confirmLabel="Delete board"
+          pendingLabel="Deleting…"
+          onConfirm={handleDeleteBoard}
+        />
       )}
     </div>
   );

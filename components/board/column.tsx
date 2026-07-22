@@ -5,16 +5,6 @@ import { Droppable } from '@hello-pangea/dnd';
 import { MoreHorizontal, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { TaskCard } from '@/components/board/task-card';
 import { updateColumn, deleteColumn } from '@/app/actions/column-actions';
 import { createTask } from '@/app/actions/task-actions';
@@ -245,22 +236,26 @@ export function Column({ column, onTaskClick }: ColumnProps) {
         </div>
       )}
 
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this column?</AlertDialogTitle>
-            <AlertDialogDescription>
-              <span className="text-foreground font-medium">{column.title}</span> and its{' '}
-              {column.tasks.length} task{column.tasks.length === 1 ? '' : 's'} will be permanently
-              deleted. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteColumn}>Delete column</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title="Delete this column?"
+        description={
+          <>
+            <span className="text-foreground font-medium">{column.title}</span>
+            {column.tasks.length > 0 && (
+              <>
+                {' '}
+                and its {column.tasks.length} task{column.tasks.length === 1 ? '' : 's'}
+              </>
+            )}{' '}
+            will be permanently deleted. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete column"
+        pendingLabel="Deleting…"
+        onConfirm={handleDeleteColumn}
+      />
     </div>
   );
 }

@@ -86,7 +86,10 @@ export default function ForgotPasswordPage() {
 
         <p className="text-muted-foreground text-center text-sm">
           Remembered it?{' '}
-          <Link href="/login" className="text-foreground font-medium underline underline-offset-4">
+          <Link
+            href={ROUTES.login}
+            className="text-foreground font-medium underline underline-offset-4"
+          >
             Sign in
           </Link>
         </p>

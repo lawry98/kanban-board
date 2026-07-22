@@ -24,7 +24,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 export default function LoginPage() {
   // useSearchParams must sit under a Suspense boundary; the auth layout provides none.
   return (
-    <Suspense fallback={<Card className="h-96 animate-pulse" />}>
+    <Suspense fallback={<Card className="h-96 animate-pulse motion-reduce:animate-none" />}>
       <LoginForm />
     </Suspense>
   );

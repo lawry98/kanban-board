@@ -22,7 +22,7 @@ const DEFAULT_MESSAGE = 'This link is invalid or has expired.';
 export default function AuthCodeErrorPage() {
   // useSearchParams must sit under a Suspense boundary; the auth layout provides none.
   return (
-    <Suspense fallback={<Card className="h-64 animate-pulse" />}>
+    <Suspense fallback={<Card className="h-64 animate-pulse motion-reduce:animate-none" />}>
       <AuthCodeError />
     </Suspense>
   );
@@ -42,11 +42,14 @@ function AuthCodeError() {
 
   return (
     <AuthMessageCard title="Link expired or invalid" description={message}>
+      {/* This page catches both reset AND confirmation link failures, so the primary
+          action is the neutral "sign in" — a password-reset link is a dead end for an
+          unconfirmed account. Requesting a fresh reset link is the secondary path. */}
       <Button asChild className="w-full">
-        <Link href={ROUTES.forgotPassword}>Request a new reset link</Link>
+        <Link href={ROUTES.login}>Back to sign in</Link>
       </Button>
       <Button asChild variant="outline" className="w-full">
-        <Link href={ROUTES.login}>Back to sign in</Link>
+        <Link href={ROUTES.forgotPassword}>Request a new reset link</Link>
       </Button>
     </AuthMessageCard>
   );

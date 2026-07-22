@@ -5,17 +5,6 @@ import { format } from 'date-fns';
 import { Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { updateTask, deleteTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
 import { PRIORITY_LABELS } from '@/lib/constants';
@@ -59,7 +49,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
   const [labelInput, setLabelInput] = useState('');
   const [labels, setLabels] = useState<string[]>(task.labels);
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   async function handleSave() {
     if (!title.trim()) return;
@@ -90,11 +80,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
   }
 
   async function handleDelete() {
-    setIsDeleting(true);
-
     const result = await deleteTask(task.id);
-    setIsDeleting(false);
-
     if (result.error) {
       toast.error(result.error);
       return;
@@ -281,27 +267,28 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           {/* Actions */}
           {canEdit && (
             <div className="flex justify-between pt-2">
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm" disabled={isDeleting}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {isDeleting ? 'Deleting…' : 'Delete'}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete this task?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      <span className="text-foreground font-medium">{task.title}</span> will be
-                      permanently deleted. This cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDelete}>Delete task</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setConfirmDeleteOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </Button>
+              <ConfirmDialog
+                open={confirmDeleteOpen}
+                onOpenChange={setConfirmDeleteOpen}
+                title="Delete this task?"
+                description={
+                  <>
+                    <span className="text-foreground font-medium">{task.title}</span> will be
+                    permanently deleted. This cannot be undone.
+                  </>
+                }
+                confirmLabel="Delete task"
+                pendingLabel="Deleting…"
+                onConfirm={handleDelete}
+              />
               <div className="ml-auto flex gap-2">
                 <Button variant="outline" size="sm" onClick={onClose}>
                   Cancel

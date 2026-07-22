@@ -19,7 +19,7 @@ import type { Route } from 'next';
 export default function RegisterPage() {
   // useSearchParams must sit under a Suspense boundary; the auth layout provides none.
   return (
-    <Suspense fallback={<Card className="h-96 animate-pulse" />}>
+    <Suspense fallback={<Card className="h-96 animate-pulse motion-reduce:animate-none" />}>
       <RegisterForm />
     </Suspense>
   );
@@ -178,7 +178,10 @@ function RegisterForm() {
 
         <p className="text-muted-foreground text-center text-sm">
           Already have an account?{' '}
-          <Link href="/login" className="text-foreground font-medium underline underline-offset-4">
+          <Link
+            href={ROUTES.login}
+            className="text-foreground font-medium underline underline-offset-4"
+          >
             Sign in
           </Link>
         </p>
