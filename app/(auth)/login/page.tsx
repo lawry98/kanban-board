@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Github } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,10 +11,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { sanitizeNext } from '@/lib/auth/redirects';
 import { createClient } from '@/lib/supabase/client';
+import type { Route } from 'next';
 
 export default function LoginPage() {
+  // useSearchParams must sit under a Suspense boundary; the auth layout provides none.
+  return (
+    <Suspense fallback={<Card className="h-96 animate-pulse" />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Sanitised here so both the email/password push and the OAuth round-trip use a
+  // single, open-redirect-safe destination.
+  const next = sanitizeNext(searchParams.get('next'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -32,7 +47,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push('/boards');
+    router.push(next as Route);
     router.refresh();
   }
 
@@ -40,7 +55,9 @@ export default function LoginPage() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      },
     });
     if (error) toast.error(error.message);
   }
