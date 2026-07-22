@@ -13,8 +13,12 @@ import type { NextRequest } from 'next/server';
  */
 export const PUBLIC_ROUTES = ['/', '/login', '/register'] as const;
 
-/** Public prefixes — everything below these paths is reachable without a session. */
-export const PUBLIC_ROUTE_PREFIXES = ['/auth/'] as const;
+/**
+ * Public prefixes — everything below these paths is reachable without a session.
+ * `/join/` is public so a logged-out invitee can reach the join page, which then
+ * routes them to sign in (carrying `?next` back to the same link).
+ */
+export const PUBLIC_ROUTE_PREFIXES = ['/auth/', '/join/'] as const;
 
 /** Signed-in users are bounced away from these to the app. */
 export const AUTH_ROUTES = ['/login', '/register'] as const;

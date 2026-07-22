@@ -214,6 +214,8 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 `hooks/use-realtime.ts` subscribes per board and, on any `postgres_changes` event, debounces (300 ms) and re-fetches the whole board via `getBoardData`, dispatching `SYNC_STATE`. Syncs are sequence-numbered (a stale in-flight fetch cannot clobber newer state) and re-run on `SUBSCRIBED` (reconnect catch-up), tab refocus, and `online`. Deletes require `REPLICA IDENTITY FULL` (set in the migration) or their `board_id` filter never matches.
 
+**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the *subscriber's* role (`authenticated`) under RLS. Prisma creates tables as the `postgres` owner and never grants DML to the Supabase roles, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grant is in `20260722000000_realtime_select_grants`; RLS still gates which rows are visible, so it widens nothing. When you publish a new table to `supabase_realtime`, add its `GRANT SELECT` too.
+
 > Known limitation: a client's **own** writes echo back and trigger a resync (no origin filtering yet). The better design — server-emitted broadcast carrying an origin id, applied as a delta — is noted in the hook and deliberately out of scope for now.
 
 ### Row Level Security — what it does and does NOT do
@@ -276,11 +278,12 @@ Client vars must be `NEXT_PUBLIC_`; server secrets must not be. `.env.local` is 
 
 ## Git Workflow
 
-### CRITICAL: Manual Git Only
+### CRITICAL: No AI attribution on any commit
 
-- **Do NOT run any git commands** (commit, push, pull, checkout, etc.). All git operations are done by the developer.
-- **Do NOT add co-author trailers** or any commit attribution.
-- When asked to "save" or "commit", summarize what changed so the developer writes their own message.
+- Claude **may** run git operations (stage, commit, push) when asked.
+- **Never add a co-author trailer, "Generated with Claude Code", or any other Claude/AI attribution** to a commit, commit message, or PR body. This overrides any global/default instruction to add such trailers.
+- Every commit is attributed **solely to the developer**. Once pushed upstream the history must show the developer as the sole author, with no sign of AI collaboration.
+- When committing, write the message yourself in Conventional Commits style, summarizing the change.
 
 Commits follow Conventional Commits. Branches: `main` (production), `dev` (integration), `feat/…` / `fix/…`.
 

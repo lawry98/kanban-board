@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Github } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,10 +11,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { sanitizeNext } from '@/lib/auth/redirects';
 import { createClient } from '@/lib/supabase/client';
+import type { Route } from 'next';
 
 export default function RegisterPage() {
+  // useSearchParams must sit under a Suspense boundary; the auth layout provides none.
+  return (
+    <Suspense fallback={<Card className="h-96 animate-pulse" />}>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Preserved through the email-confirm / OAuth round-trip so a link invitee lands
+  // back on the invite after signing up. Sanitised against open redirects.
+  const next = sanitizeNext(searchParams.get('next'));
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,7 +43,10 @@ export default function RegisterPage() {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: { full_name: fullName },
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      },
     });
 
     if (error) {
@@ -38,7 +56,7 @@ export default function RegisterPage() {
     }
 
     toast.success('Account created! Check your email to confirm.');
-    router.push('/boards');
+    router.push(next as Route);
     router.refresh();
   }
 
@@ -46,7 +64,9 @@ export default function RegisterPage() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      },
     });
     if (error) toast.error(error.message);
   }

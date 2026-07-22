@@ -28,6 +28,11 @@ function BoardContent() {
   useRealtime(board.id, dispatch);
 
   async function handleDragEnd(result: DropResult) {
+    // Cards are isDragDisabled for viewers, so this shouldn't fire for them —
+    // but guard anyway: a role change mid-drag must never optimistically move a
+    // card only for the server to reject it.
+    if (!canEdit) return;
+
     const { source, destination, draggableId } = result;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index)
@@ -52,7 +57,13 @@ function BoardContent() {
       targetIndex: destination.index,
     });
     if (result2.error) {
-      toast.error('Failed to move task');
+      // 'Forbidden' means the caller lost edit rights (e.g. demoted to viewer
+      // between render and drop) — say so rather than a generic failure.
+      toast.error(
+        result2.error === 'Forbidden'
+          ? "You're a viewer — you can't move tasks on this board"
+          : 'Failed to move task',
+      );
       // Revert by re-dispatching the original position
       dispatch({
         type: 'MOVE_TASK',
