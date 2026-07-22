@@ -14,14 +14,14 @@ export function TechStackSection() {
     <section className="border-y px-4 py-8">
       <div className="mx-auto max-w-4xl">
         <BlurFade delay={0.1} inView>
-          <p className="mb-6 text-center text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-muted-foreground mb-6 text-center text-[11px] font-semibold tracking-widest uppercase">
             Built with
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4">
             {TECH_STACK.map((tech) => (
               <div key={tech.name} className="flex flex-col items-center gap-0.5">
-                <span className="text-sm font-semibold text-foreground/80">{tech.name}</span>
-                <span className="text-[10px] text-muted-foreground">{tech.detail}</span>
+                <span className="text-foreground/80 text-sm font-semibold">{tech.name}</span>
+                <span className="text-muted-foreground text-[10px]">{tech.detail}</span>
               </div>
             ))}
           </div>

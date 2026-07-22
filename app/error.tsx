@@ -18,10 +18,10 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
 
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-4 text-center max-w-sm px-4">
-        <AlertCircle className="h-12 w-12 text-destructive/70" />
+      <div className="flex max-w-sm flex-col items-center gap-4 px-4 text-center">
+        <AlertCircle className="text-destructive/70 h-12 w-12" />
         <h1 className="text-xl font-semibold">Something went wrong</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           An unexpected error occurred. Please try again.
         </p>
         <div className="flex gap-2">

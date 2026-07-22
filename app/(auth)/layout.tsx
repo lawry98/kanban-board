@@ -19,13 +19,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       />
       <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-6 px-4 py-12">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background text-sm font-bold">
+          <div className="bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold">
             K
           </div>
           <span className="text-xl font-semibold tracking-tight">KanbanFlow</span>
         </Link>
         <div className="w-full">{children}</div>
-        <p className="text-xs text-muted-foreground">Built with Next.js &amp; Supabase</p>
+        <p className="text-muted-foreground text-xs">Built with Next.js &amp; Supabase</p>
       </div>
     </div>
   );

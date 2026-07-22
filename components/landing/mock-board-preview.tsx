@@ -36,8 +36,7 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Design',
-            className:
-              'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
+            className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
           },
         ],
         avatar: { initials: 'SM', color: 'bg-purple-500' },
@@ -49,8 +48,7 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Frontend',
-            className:
-              'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+            className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
           },
         ],
         avatar: { initials: 'JD', color: 'bg-blue-500' },
@@ -61,13 +59,11 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Design',
-            className:
-              'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
+            className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
           },
           {
             text: 'UX',
-            className:
-              'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
+            className: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
           },
         ],
         avatar: { initials: 'MA', color: 'bg-orange-500' },
@@ -84,8 +80,7 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Backend',
-            className:
-              'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+            className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
           },
         ],
         avatar: { initials: 'JD', color: 'bg-blue-500' },
@@ -97,8 +92,7 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Frontend',
-            className:
-              'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+            className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
           },
         ],
         avatar: { initials: 'SM', color: 'bg-purple-500' },
@@ -116,8 +110,7 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Frontend',
-            className:
-              'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+            className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
           },
         ],
         avatar: { initials: 'SM', color: 'bg-purple-500' },
@@ -128,8 +121,7 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Docs',
-            className:
-              'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+            className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
           },
         ],
         avatar: { initials: 'TK', color: 'bg-teal-500' },
@@ -146,8 +138,7 @@ const MOCK_BOARD: MockColumn[] = [
         labels: [
           {
             text: 'Backend',
-            className:
-              'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+            className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
           },
         ],
         avatar: { initials: 'TK', color: 'bg-teal-500' },
@@ -182,14 +173,11 @@ function MockLabelBadge({ label }: { label: MockLabel }) {
 
 function MockTaskCard({ task }: { task: MockTask }) {
   return (
-    <div className="rounded-md border bg-background p-2.5 shadow-sm space-y-2">
+    <div className="bg-background space-y-2 rounded-md border p-2.5 shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-xs font-medium leading-snug">{task.title}</span>
+        <span className="text-xs leading-snug font-medium">{task.title}</span>
         <div
-          className={cn(
-            'mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full',
-            PRIORITY_COLORS[task.priority],
-          )}
+          className={cn('mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full', PRIORITY_COLORS[task.priority])}
         />
       </div>
       <div className="flex flex-wrap gap-1">
@@ -206,9 +194,7 @@ function MockTaskCard({ task }: { task: MockTask }) {
         >
           {task.avatar.initials}
         </div>
-        {task.due && (
-          <span className="text-[10px] text-muted-foreground">{task.due}</span>
-        )}
+        {task.due && <span className="text-muted-foreground text-[10px]">{task.due}</span>}
       </div>
     </div>
   );
@@ -220,9 +206,9 @@ function MockBoardColumn({ column }: { column: MockColumn }) {
       <div className="flex items-center justify-between px-0.5">
         <div className="flex items-center gap-1.5">
           <div className={cn('h-2 w-2 rounded-full', column.dotColor)} />
-          <span className="text-xs font-medium text-foreground/80">{column.title}</span>
+          <span className="text-foreground/80 text-xs font-medium">{column.title}</span>
         </div>
-        <span className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+        <span className="bg-muted text-muted-foreground rounded px-1 py-0.5 text-[10px]">
           {column.tasks.length}
         </span>
       </div>
@@ -236,9 +222,9 @@ function MockBoardColumn({ column }: { column: MockColumn }) {
 export function MockBoardPreview() {
   return (
     <div className="overflow-x-auto">
-      <div className="relative min-w-[680px] rounded-xl border bg-background shadow-2xl shadow-black/5 dark:shadow-black/20">
+      <div className="bg-background relative min-w-[680px] rounded-xl border shadow-2xl shadow-black/5 dark:shadow-black/20">
         {/* Window chrome */}
-        <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2.5">
+        <div className="bg-muted/30 flex items-center justify-between border-b px-4 py-2.5">
           <div className="flex items-center gap-1.5">
             <div className="h-2.5 w-2.5 rounded-full bg-red-400" />
             <div className="h-2.5 w-2.5 rounded-full bg-yellow-400" />
@@ -246,9 +232,7 @@ export function MockBoardPreview() {
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-            <span className="text-xs font-medium text-muted-foreground">
-              Q1 2025 Roadmap
-            </span>
+            <span className="text-muted-foreground text-xs font-medium">Q1 2025 Roadmap</span>
           </div>
           <div className="flex items-center">
             {(
@@ -261,19 +245,19 @@ export function MockBoardPreview() {
               <div
                 key={a.initials}
                 className={cn(
-                  '-ml-1 flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white ring-1 ring-background first:ml-0',
+                  'ring-background -ml-1 flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white ring-1 first:ml-0',
                   a.color,
                 )}
               >
                 {a.initials}
               </div>
             ))}
-            <span className="ml-2 text-[10px] text-muted-foreground">3 online</span>
+            <span className="text-muted-foreground ml-2 text-[10px]">3 online</span>
           </div>
         </div>
 
         {/* Board columns */}
-        <div className="grid grid-cols-4 gap-3 bg-muted/5 p-4">
+        <div className="bg-muted/5 grid grid-cols-4 gap-3 p-4">
           {MOCK_BOARD.map((column) => (
             <MockBoardColumn key={column.title} column={column} />
           ))}

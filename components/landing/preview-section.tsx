@@ -6,7 +6,7 @@ export function PreviewSection() {
     <section id="preview" className="px-4 pb-20">
       <div className="mx-auto max-w-5xl">
         <BlurFade delay={0.5}>
-          <p className="mb-5 text-center text-sm text-muted-foreground">
+          <p className="text-muted-foreground mb-5 text-center text-sm">
             A real kanban board — drag, drop, collaborate in real time
           </p>
           <MockBoardPreview />

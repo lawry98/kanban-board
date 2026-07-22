@@ -23,7 +23,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const email = profile?.email ?? user.email ?? '';
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background min-h-screen">
       <Navbar user={{ name: displayName, email, avatarUrl: profile?.avatarUrl }} />
       <main>{children}</main>
     </div>
