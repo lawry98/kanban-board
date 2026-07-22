@@ -1,16 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { Activity, Share2 } from 'lucide-react';
+import { Activity, MoreHorizontal, Share2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { MembersDialog } from '@/components/board/members-dialog';
 import { ShareBoardDialog } from '@/components/board/share-board-dialog';
-import { updateBoard } from '@/app/actions/board-actions';
+import { deleteBoard, updateBoard } from '@/app/actions/board-actions';
 import { useBoardContext } from '@/contexts/board-context';
 
 interface BoardHeaderProps {
@@ -23,6 +30,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
   const [titleValue, setTitleValue] = useState(board.title);
   const [shareOpen, setShareOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
 
@@ -41,6 +49,12 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
       toast.success('Board updated');
     }
     setIsEditingTitle(false);
+  }
+
+  async function handleDeleteBoard() {
+    // deleteBoard redirects to /boards on success; only a failure returns here.
+    const result = await deleteBoard(board.id);
+    if (result?.error) toast.error(result.error);
   }
 
   return (
@@ -126,12 +140,50 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           <Activity className="mr-2 h-4 w-4" />
           Activity
         </Button>
+
+        {/* Board actions (owner-only) */}
+        {isOwner && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Board actions">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => setDeleteOpen(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete board
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {isOwner && (
         <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />
       )}
       <MembersDialog open={membersOpen} onOpenChange={setMembersOpen} />
+
+      {isOwner && (
+        <ConfirmDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          title="Delete this board?"
+          description={
+            <>
+              <span className="text-foreground font-medium">{board.title}</span> and all its
+              columns, tasks, members, and activity will be permanently deleted. This cannot be
+              undone.
+            </>
+          }
+          confirmLabel="Delete board"
+          pendingLabel="Deleting…"
+          onConfirm={handleDeleteBoard}
+        />
+      )}
     </div>
   );
 }

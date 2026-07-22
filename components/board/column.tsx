@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { TaskCard } from '@/components/board/task-card';
 import { updateColumn, deleteColumn } from '@/app/actions/column-actions';
 import { createTask } from '@/app/actions/task-actions';
@@ -34,6 +35,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   async function handleRenameColumn() {
@@ -143,7 +145,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleDeleteColumn}
+                onClick={() => setConfirmDeleteOpen(true)}
                 className="text-destructive focus:text-destructive"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -233,6 +235,27 @@ export function Column({ column, onTaskClick }: ColumnProps) {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title="Delete this column?"
+        description={
+          <>
+            <span className="text-foreground font-medium">{column.title}</span>
+            {column.tasks.length > 0 && (
+              <>
+                {' '}
+                and its {column.tasks.length} task{column.tasks.length === 1 ? '' : 's'}
+              </>
+            )}{' '}
+            will be permanently deleted. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete column"
+        pendingLabel="Deleting…"
+        onConfirm={handleDeleteColumn}
+      />
     </div>
   );
 }
