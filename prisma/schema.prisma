@@ -50,6 +50,7 @@ enum Action {
   BOARD_DELETED
   MEMBER_ADDED
   MEMBER_REMOVED
+  MEMBER_ROLE_CHANGED
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ model Profile {
   tasksCreated  Task[]        @relation("TaskCreatedBy")
   tasksAssigned Task[]        @relation("TaskAssignee")
   activityLogs  ActivityLog[]
+  invitations   Invitation[]
 
   @@map("profiles")
 }
@@ -90,6 +92,7 @@ model Board {
   columns      Column[]
   tasks        Task[]
   activityLogs ActivityLog[]
+  invitations  Invitation[]
 
   @@index([createdBy])
   @@map("boards")
@@ -108,6 +111,29 @@ model BoardMember {
   @@unique([boardId, userId])
   @@index([userId])
   @@map("board_members")
+}
+
+model Invitation {
+  id        String    @id @default(uuid())
+  boardId   String    @map("board_id")
+  role      Role      @default(VIEWER)
+  // Unguessable, server-generated (crypto.randomBytes). The unique index is the
+  // lookup path for the join flow.
+  token     String    @unique
+  // Optional targeting: unused by the reusable-link MVP, but present so email
+  // invitations can be added later without another migration.
+  email     String?
+  invitedBy String    @map("invited_by")
+  // A link with no expiry never lapses; revocation is via revokedAt.
+  expiresAt DateTime? @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  inviter Profile @relation(fields: [invitedBy], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@map("invitations")
 }
 
 model Column {
