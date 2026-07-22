@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
 
 import { Toaster } from '@/components/ui/sonner';
+import { AuthErrorCatcher } from '@/components/auth/auth-error-catcher';
 
 import './globals.css';
 
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           enableSystem
           disableTransitionOnChange
         >
+          <AuthErrorCatcher />
           {children}
           <Toaster richColors closeButton />
         </ThemeProvider>
