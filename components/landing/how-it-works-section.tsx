@@ -10,14 +10,12 @@ const HOW_IT_WORKS = [
   {
     step: '02',
     title: 'Add tasks',
-    description:
-      'Break work into cards. Add labels, due dates, assignees, and priority markers.',
+    description: 'Break work into cards. Add labels, due dates, assignees, and priority markers.',
   },
   {
     step: '03',
     title: 'Drag & organize',
-    description:
-      'Move tasks across columns as work progresses. Reorder cards with a simple drag.',
+    description: 'Move tasks across columns as work progresses. Reorder cards with a simple drag.',
   },
   {
     step: '04',
@@ -36,7 +34,7 @@ export function HowItWorksSection() {
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
               Up and running in minutes
             </h2>
-            <p className="mx-auto mt-3 max-w-xl text-base text-muted-foreground">
+            <p className="text-muted-foreground mx-auto mt-3 max-w-xl text-base">
               No complex setup. Create a board, add tasks, invite your team, and ship.
             </p>
           </div>
@@ -46,11 +44,11 @@ export function HowItWorksSection() {
           {HOW_IT_WORKS.map((item, index) => (
             <BlurFade key={item.step} delay={0.2 + index * 0.1} inView>
               <div className="flex flex-col gap-3">
-                <div className="text-3xl font-bold tabular-nums text-muted-foreground/25">
+                <div className="text-muted-foreground/25 text-3xl font-bold tabular-nums">
                   {item.step}
                 </div>
                 <h3 className="font-semibold">{item.title}</h3>
-                <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
+                <p className="text-muted-foreground text-sm leading-6">{item.description}</p>
               </div>
             </BlurFade>
           ))}

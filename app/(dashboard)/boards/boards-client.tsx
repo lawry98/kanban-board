@@ -25,7 +25,7 @@ export function BoardsClient({ boards }: BoardsClientProps) {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Boards</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-muted-foreground mt-1 text-sm">
             {boards.length === 0
               ? 'Create your first board to get started'
               : `${boards.length} board${boards.length === 1 ? '' : 's'}`}
@@ -40,9 +40,9 @@ export function BoardsClient({ boards }: BoardsClientProps) {
       {boards.length === 0 ? (
         <BlurFade delay={0.1}>
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-24 text-center">
-            <LayoutDashboard className="h-12 w-12 text-muted-foreground/50 mb-4" />
+            <LayoutDashboard className="text-muted-foreground/50 mb-4 h-12 w-12" />
             <h3 className="text-lg font-medium">No boards yet</h3>
-            <p className="text-sm text-muted-foreground mt-1 mb-6">
+            <p className="text-muted-foreground mt-1 mb-6 text-sm">
               Create your first board to start organizing tasks with your team.
             </p>
             <Button onClick={() => setDialogOpen(true)}>
@@ -55,11 +55,11 @@ export function BoardsClient({ boards }: BoardsClientProps) {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {boards.map((board, index) => (
             <BlurFade key={board.id} delay={0.05 * index}>
-              <Link href={`/board/${board.id}`} className="block group">
-                <Card className="h-full transition-shadow hover:shadow-md cursor-pointer">
+              <Link href={`/board/${board.id}`} className="group block">
+                <Card className="h-full cursor-pointer transition-shadow hover:shadow-md">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-base font-medium leading-tight line-clamp-2">
+                      <CardTitle className="line-clamp-2 text-base leading-tight font-medium">
                         {board.title}
                       </CardTitle>
                       <Badge variant="outline" className="shrink-0 text-xs capitalize">
@@ -67,16 +67,19 @@ export function BoardsClient({ boards }: BoardsClientProps) {
                       </Badge>
                     </div>
                     {board.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                      <p className="text-muted-foreground mt-1 line-clamp-2 text-xs">
                         {board.description}
                       </p>
                     )}
                   </CardHeader>
                   <CardContent className="pt-0">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <div className="text-muted-foreground flex items-center gap-3 text-xs">
                         <span>
-                          <NumberTicker value={board._count.tasks} className="text-xs font-medium text-foreground" />{' '}
+                          <NumberTicker
+                            value={board._count.tasks}
+                            className="text-foreground text-xs font-medium"
+                          />{' '}
                           task{board._count.tasks !== 1 ? 's' : ''}
                         </span>
                         <span>{board.updatedAtRelative}</span>
@@ -91,7 +94,7 @@ export function BoardsClient({ boards }: BoardsClientProps) {
                             .toUpperCase()
                             .slice(0, 2);
                           return (
-                            <Avatar key={member.id} className="h-6 w-6 border-2 border-background">
+                            <Avatar key={member.id} className="border-background h-6 w-6 border-2">
                               {member.profile.avatarUrl && (
                                 <AvatarImage src={member.profile.avatarUrl} alt={name} />
                               )}
@@ -100,7 +103,7 @@ export function BoardsClient({ boards }: BoardsClientProps) {
                           );
                         })}
                         {board.members.length > 4 && (
-                          <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-medium">
+                          <div className="border-background bg-muted flex h-6 w-6 items-center justify-center rounded-full border-2 text-[10px] font-medium">
                             +{board.members.length - 4}
                           </div>
                         )}
@@ -116,7 +119,7 @@ export function BoardsClient({ boards }: BoardsClientProps) {
           <BlurFade delay={0.05 * boards.length}>
             <button
               onClick={() => setDialogOpen(true)}
-              className="flex h-full min-h-[140px] w-full items-center justify-center rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+              className="text-muted-foreground hover:border-foreground/30 hover:text-foreground flex h-full min-h-[140px] w-full items-center justify-center rounded-lg border border-dashed transition-colors"
             >
               <div className="flex flex-col items-center gap-2">
                 <Plus className="h-5 w-5" />

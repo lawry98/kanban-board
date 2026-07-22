@@ -1,5 +1,16 @@
 import { Skeleton } from '@/components/ui/skeleton';
 
+// Static placeholder shapes. Named rather than index-generated so the keys are stable
+// identifiers instead of positions — these lists never reorder, but index keys here
+// trained us to ignore the lint rule that catches the cases where it does matter.
+const MEMBER_PLACEHOLDERS = ['member-a', 'member-b', 'member-c'];
+const COLUMN_PLACEHOLDERS = [
+  { id: 'col-a', cards: ['card-a1'] },
+  { id: 'col-b', cards: ['card-b1', 'card-b2'] },
+  { id: 'col-c', cards: ['card-c1', 'card-c2', 'card-c3'] },
+  { id: 'col-d', cards: ['card-d1', 'card-d2', 'card-d3', 'card-d4'] },
+];
+
 export default function BoardLoading() {
   return (
     <div className="flex h-[calc(100vh-56px)] flex-col overflow-hidden">
@@ -12,8 +23,8 @@ export default function BoardLoading() {
         <div className="flex items-center gap-3">
           {/* Member avatars */}
           <div className="flex -space-x-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-7 w-7 rounded-full ring-2 ring-background" />
+            {MEMBER_PLACEHOLDERS.map((key) => (
+              <Skeleton key={key} className="ring-background h-7 w-7 rounded-full ring-2" />
             ))}
           </div>
           {/* Invite button */}
@@ -25,15 +36,15 @@ export default function BoardLoading() {
 
       {/* Columns */}
       <div className="flex gap-4 overflow-x-auto p-6">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="flex w-72 shrink-0 flex-col gap-3">
+        {COLUMN_PLACEHOLDERS.map((column) => (
+          <div key={column.id} className="flex w-72 shrink-0 flex-col gap-3">
             <div className="flex items-center justify-between px-0.5">
               <Skeleton className="h-4 w-24" />
               <Skeleton className="h-4 w-6 rounded" />
             </div>
-            <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-2">
-              {Array.from({ length: i + 1 }).map((_, j) => (
-                <div key={j} className="rounded-md border bg-background p-2.5 space-y-2">
+            <div className="bg-muted/30 flex flex-col gap-2 rounded-lg border p-2">
+              {column.cards.map((cardKey) => (
+                <div key={cardKey} className="bg-background space-y-2 rounded-md border p-2.5">
                   <Skeleton className="h-4 w-full" />
                   <Skeleton className="h-4 w-4/5" />
                   <div className="flex items-center gap-1">

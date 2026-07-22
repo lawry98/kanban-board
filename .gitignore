@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but the keys-only template IS committed.
+!.env.example
 
 # local supabase cli stack (machine-specific ports / service config)
 /supabase
@@ -43,5 +45,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/app/generated/prisma
+# local agent/editor state
 .claude/settings.local.json
+
+# scratch files dropped at the repo root by tooling
+_tmp_*

@@ -1,6 +1,10 @@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
+// Static placeholder shapes — named keys rather than array indices, see board loading.tsx.
+const AVATAR_PLACEHOLDERS = ['avatar-a', 'avatar-b', 'avatar-c'];
+const CARD_PLACEHOLDERS = Array.from({ length: 8 }, (_, i) => `board-card-${i}`);
+
 function BoardCardSkeleton() {
   return (
     <Card className="h-full">
@@ -19,8 +23,8 @@ function BoardCardSkeleton() {
             <Skeleton className="h-3 w-16" />
           </div>
           <div className="flex -space-x-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-6 w-6 rounded-full ring-2 ring-background" />
+            {AVATAR_PLACEHOLDERS.map((key) => (
+              <Skeleton key={key} className="ring-background h-6 w-6 rounded-full ring-2" />
             ))}
           </div>
         </div>
@@ -40,8 +44,8 @@ export default function BoardsLoading() {
         <Skeleton className="h-9 w-28" />
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <BoardCardSkeleton key={i} />
+        {CARD_PLACEHOLDERS.map((key) => (
+          <BoardCardSkeleton key={key} />
         ))}
       </div>
     </div>

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, lint, format, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # mise.toml pins node 24.17.0 + pnpm 11.8.0 — single source of truth for
+      # toolchain versions, shared with local dev.
+      - name: Set up toolchain (mise)
+        uses: jdx/mise-action@v2
+        with:
+          cache: true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Required before typecheck/lint/test: @prisma/client types are generated,
+      # and `types/board.ts` imports them. `generate` never contacts the database,
+      # but prisma.config.ts reads DIRECT_URL, so a placeholder keeps it defined.
+      - name: Generate Prisma Client
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:5432/postgres
+          DIRECT_URL: postgresql://user:pass@localhost:5432/postgres
+        run: pnpm prisma generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # TODO: add `--max-warnings=0` once the 6 existing `react/no-array-index-key`
+      # warnings are cleared. Enabling it today would make CI red on day one.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      # `pnpm test` is `vitest run` (single pass, no watch).
+      - name: Test
+        run: pnpm test

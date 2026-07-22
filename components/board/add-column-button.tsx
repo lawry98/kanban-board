@@ -20,7 +20,7 @@ export function AddColumnButton() {
     if (!title.trim() || isLoading) return;
     setIsLoading(true);
 
-    const result = await createColumn(board.id, title.trim());
+    const result = await createColumn({ boardId: board.id, title: title.trim() });
     setIsLoading(false);
 
     if (result.error) {
@@ -43,7 +43,7 @@ export function AddColumnButton() {
 
   if (isEditing) {
     return (
-      <div className="flex w-64 shrink-0 flex-col gap-2 rounded-lg border bg-card p-3">
+      <div className="bg-card flex w-64 shrink-0 flex-col gap-2 rounded-lg border p-3">
         <Input
           ref={inputRef}
           value={title}
@@ -81,7 +81,7 @@ export function AddColumnButton() {
   return (
     <button
       onClick={() => setIsEditing(true)}
-      className="flex h-12 w-64 shrink-0 items-center justify-center gap-2 rounded-lg border border-dashed text-sm text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+      className="text-muted-foreground hover:border-foreground/30 hover:text-foreground flex h-12 w-64 shrink-0 items-center justify-center gap-2 rounded-lg border border-dashed text-sm transition-colors"
     >
       <Plus className="h-4 w-4" />
       Add column

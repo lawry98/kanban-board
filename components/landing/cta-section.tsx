@@ -9,14 +9,17 @@ export function CtaSection() {
     <section className="border-t px-4 py-24">
       <div className="mx-auto max-w-2xl text-center">
         <BlurFade delay={0.1} inView>
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            Ready to ship faster?
-          </h2>
-          <p className="mx-auto mt-4 max-w-md text-base text-muted-foreground">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Ready to ship faster?</h2>
+          <p className="text-muted-foreground mx-auto mt-4 max-w-md text-base">
             Create your first board in seconds. Free to use, no credit card required.
           </p>
           <div className="mt-8 flex justify-center">
-            <PulsatingButton as={Link} href="/register" className="inline-flex h-11 items-center gap-2 px-8 text-sm font-medium" pulseColor="#6366f1">
+            <PulsatingButton
+              as={Link}
+              href="/register"
+              className="inline-flex h-11 items-center gap-2 px-8 text-sm font-medium"
+              pulseColor="#6366f1"
+            >
               Get started for free
               <ArrowRight className="h-4 w-4" />
             </PulsatingButton>

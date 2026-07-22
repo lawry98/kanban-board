@@ -1,13 +1,32 @@
+import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import type { NextRequest, NextResponse } from 'next/server';
 
-export async function updateSession(
-  request: NextRequest,
-  response: NextResponse,
-): Promise<NextResponse> {
+import { env } from '@/lib/env';
+
+import type { User } from '@supabase/supabase-js';
+import type { NextRequest } from 'next/server';
+
+export interface SessionResult {
+  /** Response carrying any rotated auth cookies. Must be returned (or its cookies copied). */
+  response: NextResponse;
+  /** Server-verified user, or null when there is no valid session. */
+  user: User | null;
+}
+
+/**
+ * Refreshes the Supabase session for a request and returns the verified user.
+ *
+ * This performs the ONLY `getUser()` call in the request pipeline. `getUser()`
+ * is a network round-trip to the auth server, and with refresh-token rotation
+ * two concurrent calls can race on the same single-use refresh token, so the
+ * caller must reuse the `user` returned here rather than asking again.
+ */
+export async function updateSession(request: NextRequest): Promise<SessionResult> {
+  const response = NextResponse.next({ request });
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
@@ -23,8 +42,11 @@ export async function updateSession(
     },
   );
 
-  // Refresh session — important for Server Components
-  await supabase.auth.getUser();
+  // getUser() validates the token against the auth server; getSession() only
+  // decodes the (client-writable) cookie and must never be used for authorization.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return response;
+  return { response, user };
 }

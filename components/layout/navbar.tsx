@@ -18,12 +18,12 @@ interface NavbarProps {
 
 export function Navbar({ user, breadcrumb }: NavbarProps) {
   return (
-    <header className="sticky top-0 z-50 flex h-14 w-full items-center border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-14 w-full items-center border-b backdrop-blur">
       <div className="mx-auto flex w-full max-w-screen-2xl items-center justify-between px-4 sm:px-6">
         {/* Left: Logo */}
         <div className="flex items-center gap-3">
           <Link href="/boards" className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-foreground text-background text-xs font-bold">
+            <div className="bg-foreground text-background flex h-6 w-6 items-center justify-center rounded text-xs font-bold">
               K
             </div>
             <span className="text-sm font-semibold">KanbanFlow</span>
@@ -32,10 +32,10 @@ export function Navbar({ user, breadcrumb }: NavbarProps) {
           {/* Breadcrumb */}
           {breadcrumb && (
             <>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Boards</span>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium truncate max-w-[200px]">
+              <ChevronRight className="text-muted-foreground h-4 w-4" />
+              <span className="text-muted-foreground text-sm">Boards</span>
+              <ChevronRight className="text-muted-foreground h-4 w-4" />
+              <span className="max-w-[200px] truncate text-sm font-medium">
                 {breadcrumb.boardTitle}
               </span>
             </>
@@ -44,7 +44,7 @@ export function Navbar({ user, breadcrumb }: NavbarProps) {
 
         {/* Right: Theme toggle + User menu */}
         <div className="flex items-center gap-1">
-          <AnimatedThemeToggler className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" />
+          <AnimatedThemeToggler className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 w-8 items-center justify-center rounded-md transition-colors" />
           <UserMenu name={user.name} email={user.email} avatarUrl={user.avatarUrl} />
         </div>
       </div>

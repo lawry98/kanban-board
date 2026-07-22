@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { PUBLIC_PROFILE_SELECT } from '@/types/board';
 import { BoardView } from './board-view';
 
 interface BoardPageProps {
@@ -42,24 +43,21 @@ export default async function BoardPage({ params }: BoardPageProps) {
         include: {
           tasks: {
             orderBy: { position: 'asc' },
-            include: { assignee: true, creator: true },
+            include: {
+              assignee: { select: PUBLIC_PROFILE_SELECT },
+              creator: { select: PUBLIC_PROFILE_SELECT },
+            },
           },
         },
       },
       members: {
         include: { profile: true },
       },
-      creator: true,
+      creator: { select: PUBLIC_PROFILE_SELECT },
     },
   });
 
   if (!board) notFound();
 
-  return (
-    <BoardView
-      board={board}
-      currentUserId={user.id}
-      userRole={membership.role}
-    />
-  );
+  return <BoardView board={board} currentUserId={user.id} userRole={membership.role} />;
 }

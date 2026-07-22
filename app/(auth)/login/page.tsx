@@ -62,7 +62,7 @@ export default function LoginPage() {
             <Separator />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+            <span className="bg-card text-muted-foreground px-2">Or continue with</span>
           </div>
         </div>
 
@@ -95,9 +95,12 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <p className="text-center text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-center text-sm">
           Don&apos;t have an account?{' '}
-          <Link href="/register" className="font-medium text-foreground underline underline-offset-4">
+          <Link
+            href="/register"
+            className="text-foreground font-medium underline underline-offset-4"
+          >
             Sign up
           </Link>
         </p>

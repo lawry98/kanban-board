@@ -19,7 +19,7 @@ interface TaskCardProps {
 
 export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCardProps) {
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
-  const assigneeName = task.assignee?.fullName ?? task.assignee?.email;
+  const assigneeName = task.assignee?.fullName ?? undefined;
   const assigneeInitials = assigneeName
     ?.split(' ')
     .map((n) => n[0])
@@ -36,9 +36,9 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
           {...provided.dragHandleProps}
           onClick={() => onClick(task)}
           className={cn(
-            'group rounded-md border bg-card p-3 text-sm shadow-sm cursor-pointer',
+            'group bg-card cursor-pointer rounded-md border p-3 text-sm shadow-sm',
             'transition-shadow hover:shadow-md',
-            snapshot.isDragging && 'rotate-1 shadow-lg ring-1 ring-primary/20',
+            snapshot.isDragging && 'ring-primary/20 rotate-1 shadow-lg ring-1',
           )}
         >
           {/* Priority badge */}
@@ -46,7 +46,7 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
             <div className="mb-2">
               <Badge
                 variant="outline"
-                className={cn('text-xs py-0 px-1.5', PRIORITY_COLORS[task.priority])}
+                className={cn('px-1.5 py-0 text-xs', PRIORITY_COLORS[task.priority])}
               >
                 {PRIORITY_LABELS[task.priority]}
               </Badge>
@@ -54,18 +54,18 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
           )}
 
           {/* Title */}
-          <p className="font-medium leading-snug line-clamp-3 mb-2">{task.title}</p>
+          <p className="mb-2 line-clamp-3 leading-snug font-medium">{task.title}</p>
 
           {/* Labels */}
           {task.labels.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
+            <div className="mb-2 flex flex-wrap gap-1">
               {task.labels.slice(0, 3).map((label) => (
-                <Badge key={label} variant="secondary" className="text-xs py-0 px-1.5">
+                <Badge key={label} variant="secondary" className="px-1.5 py-0 text-xs">
                   {label}
                 </Badge>
               ))}
               {task.labels.length > 3 && (
-                <Badge variant="secondary" className="text-xs py-0 px-1.5">
+                <Badge variant="secondary" className="px-1.5 py-0 text-xs">
                   +{task.labels.length - 3}
                 </Badge>
               )}
@@ -74,7 +74,7 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
 
           {/* Footer: due date + assignee */}
           {(task.dueDate || task.assignee) && (
-            <div className="flex items-center justify-between mt-2 pt-2 border-t">
+            <div className="mt-2 flex items-center justify-between border-t pt-2">
               {task.dueDate ? (
                 <div
                   className={cn(
@@ -82,11 +82,7 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
                     isOverdue ? 'text-destructive' : 'text-muted-foreground',
                   )}
                 >
-                  {isOverdue ? (
-                    <AlertCircle className="h-3 w-3" />
-                  ) : (
-                    <Clock className="h-3 w-3" />
-                  )}
+                  {isOverdue ? <AlertCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
                   <span>{formatDistanceToNow(new Date(task.dueDate), { addSuffix: true })}</span>
                 </div>
               ) : (
