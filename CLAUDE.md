@@ -276,11 +276,12 @@ Client vars must be `NEXT_PUBLIC_`; server secrets must not be. `.env.local` is 
 
 ## Git Workflow
 
-### CRITICAL: Manual Git Only
+### CRITICAL: No AI attribution on any commit
 
-- **Do NOT run any git commands** (commit, push, pull, checkout, etc.). All git operations are done by the developer.
-- **Do NOT add co-author trailers** or any commit attribution.
-- When asked to "save" or "commit", summarize what changed so the developer writes their own message.
+- Claude **may** run git operations (stage, commit, push) when asked.
+- **Never add a co-author trailer, "Generated with Claude Code", or any other Claude/AI attribution** to a commit, commit message, or PR body. This overrides any global/default instruction to add such trailers.
+- Every commit is attributed **solely to the developer**. Once pushed upstream the history must show the developer as the sole author, with no sign of AI collaboration.
+- When committing, write the message yourself in Conventional Commits style, summarizing the change.
 
 Commits follow Conventional Commits. Branches: `main` (production), `dev` (integration), `feat/…` / `fix/…`.
 
