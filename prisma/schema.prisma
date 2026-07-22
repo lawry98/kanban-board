@@ -1,3 +1,18 @@
+// ─── RLS posture (team decision — read this before assuming a DB backstop) ────
+//
+// Row Level Security is ENABLED on every table and its policies were repaired in
+// migration 20260721000000_review_fixes. It exists for exactly one reason: so
+// Supabase Realtime (postgres_changes) can authorize per-subscriber reads.
+//
+// RLS does NOT protect application data. Prisma connects over DATABASE_URL as
+// the `postgres` role, which owns these tables and has BYPASSRLS — so every
+// query issued from a Server Component or Server Action bypasses every policy.
+//
+// Authorization is enforced in application code, in the server actions, via
+// `lib/auth/require-access.ts`. When you add a server action you MUST call the
+// access check yourself. The database will not catch a missing check for you.
+// ─────────────────────────────────────────────────────────────────────────────
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -30,6 +45,9 @@ enum Action {
   COLUMN_CREATED
   COLUMN_UPDATED
   COLUMN_DELETED
+  BOARD_CREATED
+  BOARD_UPDATED
+  BOARD_DELETED
   MEMBER_ADDED
   MEMBER_REMOVED
 }
@@ -61,12 +79,19 @@ model Board {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  // NOTE: left as Cascade deliberately — deleting a profile deletes the boards
+  // they own, and with them the columns/tasks/members/logs beneath. This is the
+  // intended "delete my account, delete my boards" behaviour, but it is
+  // destructive for collaborators who are members of those boards. If account
+  // deletion becomes user-facing, revisit this (ownership transfer or soft
+  // delete) rather than letting a single DELETE take out other people's work.
   creator      Profile       @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   members      BoardMember[]
   columns      Column[]
   tasks        Task[]
   activityLogs ActivityLog[]
 
+  @@index([createdBy])
   @@map("boards")
 }
 
@@ -81,6 +106,7 @@ model BoardMember {
   profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([boardId, userId])
+  @@index([userId])
   @@map("board_members")
 }
 
@@ -88,7 +114,9 @@ model Column {
   id        String   @id @default(uuid())
   boardId   String   @map("board_id")
   title     String
-  position  Int
+  // Fractional: a reorder is a single-row update to the midpoint between
+  // neighbours, rather than renumbering every sibling.
+  position  Float
   color     String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -97,6 +125,7 @@ model Column {
   tasks Task[]
 
   @@index([boardId])
+  @@index([boardId, position])
   @@map("columns")
 }
 
@@ -106,39 +135,45 @@ model Task {
   boardId     String    @map("board_id")
   title       String
   description String?
-  position    Int
+  // Fractional: see Column.position.
+  position    Float
   priority    Priority  @default(NONE)
   labels      String[]
   dueDate     DateTime? @map("due_date")
   assigneeId  String?   @map("assignee_id")
-  createdBy   String    @map("created_by")
+  // Nullable + SetNull: deleting a profile must not destroy tasks that user
+  // created on other people's boards. NULL means "created by a deleted user".
+  createdBy   String?   @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
   column   Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
   board    Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
   assignee Profile? @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  creator  Profile  @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
+  creator  Profile? @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
 
-  @@index([columnId])
+  @@index([columnId, position])
   @@index([boardId])
   @@index([assigneeId])
+  @@index([createdBy])
   @@map("tasks")
 }
 
 model ActivityLog {
   id         String   @id @default(uuid())
   boardId    String   @map("board_id")
-  userId     String   @map("user_id")
+  // Nullable + SetNull: deleting a profile must not erase the audit trail.
+  userId     String?  @map("user_id")
   action     Action
   entityType String   @map("entity_type")
   entityId   String   @map("entity_id")
   metadata   Json     @default("{}")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  board   Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  profile Profile? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([boardId, createdAt])
+  @@index([userId])
   @@map("activity_logs")
 }
