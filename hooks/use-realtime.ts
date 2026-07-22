@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type { Dispatch } from 'react';
 
@@ -9,6 +10,14 @@ import { getBoardData } from '@/app/actions/board-actions';
 import type { BoardAction } from '@/types';
 
 const SYNC_DEBOUNCE_MS = 300;
+
+/**
+ * `getBoardData` returns this exact string (from `requireBoardMember`) once the
+ * viewer is no longer a member — the signal that they've been removed from the
+ * board while watching it. Distinct from a transient/network error, which must
+ * NOT eject them.
+ */
+const ACCESS_LOST_ERROR = 'Forbidden';
 
 /**
  * Realtime board synchronisation.
@@ -46,6 +55,7 @@ const SYNC_DEBOUNCE_MS = 300;
  * can ignore its own echoes and apply deltas without a refetch.
  */
 export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
+  const router = useRouter();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Monotonic sequence for fetch ordering; see (3) above.
   const syncSeqRef = useRef(0);
@@ -58,15 +68,24 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
     if (seq !== syncSeqRef.current) return;
 
     if ('error' in result && result.error) {
-      // Session expiry / removal from the board lands here. Without surfacing
-      // it the client would silently render stale state forever.
+      // Removed-from-board: a board_members DELETE echoes back, the refetch is
+      // denied, and leaving them stranded on a board they can no longer read is
+      // worse than a redirect. Session expiry / transient errors only toast.
+      if (result.error === ACCESS_LOST_ERROR) {
+        toast.error('You no longer have access to this board.');
+        router.push('/boards');
+        return;
+      }
+      // Without surfacing it the client would silently render stale state forever.
       toast.error(result.error);
       return;
     }
 
     const data = 'data' in result ? result.data : null;
     if (!data) {
+      // Board deleted out from under the viewer — eject rather than freeze.
       toast.error('This board is no longer available.');
+      router.push('/boards');
       return;
     }
 
@@ -74,7 +93,7 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
       type: 'SYNC_STATE',
       payload: { columns: data.columns, members: data.members },
     });
-  }, [boardId, dispatch]);
+  }, [boardId, dispatch, router]);
 
   const debouncedSync = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -105,6 +124,11 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'columns', filter: `board_id=eq.${boardId}` },
+        debouncedSync,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'board_members', filter: `board_id=eq.${boardId}` },
         debouncedSync,
       )
       .subscribe((status) => {
