@@ -4,8 +4,10 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
+import { AuthMessageCard } from '@/components/auth/auth-message-card';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
+import { ROUTES } from '@/lib/auth/redirects';
 
 // Friendly copy for the auth-link failures Supabase reports. Unknown codes fall
 // back to the generic message.
@@ -28,25 +30,24 @@ export default function AuthCodeErrorPage() {
 
 function AuthCodeError() {
   const searchParams = useSearchParams();
-  // The catcher and the callback both forward the failure as an `error_code`
-  // query param before routing here, so the query string is the single source.
+  // The catcher and the callback forward the failure here as query params. GoTrue
+  // reports an expired link as `error=access_denied&error_code=otp_expired`, so we
+  // key on the specific `error_code` first, then fall back to the broader `error`.
   const errorCode = searchParams.get('error_code');
-  const message = (errorCode && ERROR_MESSAGES[errorCode]) || DEFAULT_MESSAGE;
+  const error = searchParams.get('error');
+  const message =
+    (errorCode && ERROR_MESSAGES[errorCode]) ||
+    (error && ERROR_MESSAGES[error]) ||
+    DEFAULT_MESSAGE;
 
   return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl">Link expired or invalid</CardTitle>
-        <CardDescription>{message}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Button asChild className="w-full">
-          <Link href="/forgot-password">Request a new reset link</Link>
-        </Button>
-        <Button asChild variant="outline" className="w-full">
-          <Link href="/login">Back to sign in</Link>
-        </Button>
-      </CardContent>
-    </Card>
+    <AuthMessageCard title="Link expired or invalid" description={message}>
+      <Button asChild className="w-full">
+        <Link href={ROUTES.forgotPassword}>Request a new reset link</Link>
+      </Button>
+      <Button asChild variant="outline" className="w-full">
+        <Link href={ROUTES.login}>Back to sign in</Link>
+      </Button>
+    </AuthMessageCard>
   );
 }

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 
+import { AuthErrorCatcher } from '@/components/auth/auth-error-catcher';
 import { DotPattern } from '@/components/ui/dot-pattern';
 import { LandingHeader } from '@/components/landing/landing-header';
 import { HeroSection } from '@/components/landing/hero-section';
@@ -22,6 +23,8 @@ export default async function LandingPage() {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-x-hidden">
+      {/* Catches Supabase hash-fragment link errors that land on `site_url` (`/`). */}
+      <AuthErrorCatcher />
       <DotPattern
         className={cn(
           'absolute inset-0 fill-neutral-300/40 dark:fill-neutral-700/25',

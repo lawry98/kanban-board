@@ -11,14 +11,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { sanitizeNext } from '@/lib/auth/redirects';
+import { AUTH_ERROR, ROUTES, sanitizeNext } from '@/lib/auth/redirects';
 import { createClient } from '@/lib/supabase/client';
 import type { Route } from 'next';
 
 // Maps the `?error` codes set by the OAuth callback to human-readable copy so a
 // failed sign-in explains itself instead of landing silently on the login screen.
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  auth_callback_failed: 'Sign-in could not be completed. Please try again.',
+  [AUTH_ERROR.callbackFailed]: 'Sign-in could not be completed. Please try again.',
 };
 
 export default function LoginPage() {
@@ -66,7 +66,7 @@ function LoginForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `${window.location.origin}${ROUTES.authCallback}?next=${encodeURIComponent(next)}`,
       },
     });
     if (error) toast.error(error.message);
@@ -119,7 +119,7 @@ function LoginForm() {
             <div className="flex items-center justify-between">
               <Label htmlFor="password">Password</Label>
               <Link
-                href="/forgot-password"
+                href={ROUTES.forgotPassword}
                 className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-4"
               >
                 Forgot password?
@@ -142,7 +142,7 @@ function LoginForm() {
         <p className="text-muted-foreground text-center text-sm">
           Don&apos;t have an account?{' '}
           <Link
-            href="/register"
+            href={ROUTES.register}
             className="text-foreground font-medium underline underline-offset-4"
           >
             Sign up

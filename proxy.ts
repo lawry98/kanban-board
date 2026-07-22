@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { ROUTES } from '@/lib/auth/redirects';
 import { updateSession } from '@/lib/supabase/middleware';
 
 import type { NextRequest } from 'next/server';
@@ -12,11 +13,11 @@ import type { NextRequest } from 'next/server';
  * leave every newly added dashboard route unprotected at the edge.
  */
 export const PUBLIC_ROUTES = [
-  '/',
-  '/login',
-  '/register',
-  '/forgot-password',
-  '/auth-code-error',
+  ROUTES.home,
+  ROUTES.login,
+  ROUTES.register,
+  ROUTES.forgotPassword,
+  ROUTES.authCodeError,
 ] as const;
 
 /**
@@ -27,13 +28,13 @@ export const PUBLIC_ROUTES = [
 export const PUBLIC_ROUTE_PREFIXES = ['/auth/', '/join/'] as const;
 
 /** Signed-in users are bounced away from these to the app. */
-export const AUTH_ROUTES = ['/login', '/register'] as const;
+export const AUTH_ROUTES = [ROUTES.login, ROUTES.register] as const;
 
 /** Where authenticated users land when they hit an auth route. */
-export const DEFAULT_AUTHENTICATED_ROUTE = '/boards';
+export const DEFAULT_AUTHENTICATED_ROUTE = ROUTES.boards;
 
 /** Where unauthenticated users are sent when they hit a protected route. */
-export const LOGIN_ROUTE = '/login';
+export const LOGIN_ROUTE = ROUTES.login;
 
 export function isPublicRoute(pathname: string): boolean {
   return (

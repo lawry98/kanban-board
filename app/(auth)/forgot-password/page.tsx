@@ -4,10 +4,12 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
+import { AuthMessageCard } from '@/components/auth/auth-message-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ROUTES } from '@/lib/auth/redirects';
 import { createClient } from '@/lib/supabase/client';
 
 export default function ForgotPasswordPage() {
@@ -23,7 +25,7 @@ export default function ForgotPasswordPage() {
     // The recovery link returns through the shared /auth/callback, which exchanges
     // the code for a session and forwards to /reset-password to set a new password.
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent('/reset-password')}`,
+      redirectTo: `${window.location.origin}${ROUTES.authCallback}?next=${encodeURIComponent(ROUTES.resetPassword)}`,
     });
     setIsLoading(false);
 
@@ -39,20 +41,19 @@ export default function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <Card>
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl">Check your email</CardTitle>
-          <CardDescription>
+      <AuthMessageCard
+        title="Check your email"
+        description={
+          <>
             If an account exists for <span className="text-foreground font-medium">{email}</span>, a
             password-reset link is on its way.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/login">Back to sign in</Link>
-          </Button>
-        </CardContent>
-      </Card>
+          </>
+        }
+      >
+        <Button asChild variant="outline" className="w-full">
+          <Link href={ROUTES.login}>Back to sign in</Link>
+        </Button>
+      </AuthMessageCard>
     );
   }
 

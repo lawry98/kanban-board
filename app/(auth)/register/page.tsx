@@ -6,12 +6,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Github } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { AuthMessageCard } from '@/components/auth/auth-message-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { sanitizeNext } from '@/lib/auth/redirects';
+import { ROUTES, sanitizeNext } from '@/lib/auth/redirects';
 import { createClient } from '@/lib/supabase/client';
 import type { Route } from 'next';
 
@@ -48,7 +49,7 @@ function RegisterForm() {
       password,
       options: {
         data: { full_name: fullName },
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        emailRedirectTo: `${window.location.origin}${ROUTES.authCallback}?next=${encodeURIComponent(next)}`,
       },
     });
 
@@ -86,7 +87,7 @@ function RegisterForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `${window.location.origin}${ROUTES.authCallback}?next=${encodeURIComponent(next)}`,
       },
     });
     if (error) toast.error(error.message);
@@ -94,21 +95,20 @@ function RegisterForm() {
 
   if (confirmationEmail) {
     return (
-      <Card>
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl">Check your email</CardTitle>
-          <CardDescription>
+      <AuthMessageCard
+        title="Check your email"
+        description={
+          <>
             We sent a confirmation link to{' '}
             <span className="text-foreground font-medium">{confirmationEmail}</span>. Click it to
             activate your account, then sign in.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/login">Back to sign in</Link>
-          </Button>
-        </CardContent>
-      </Card>
+          </>
+        }
+      >
+        <Button asChild variant="outline" className="w-full">
+          <Link href={ROUTES.login}>Back to sign in</Link>
+        </Button>
+      </AuthMessageCard>
     );
   }
 

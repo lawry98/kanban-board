@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ROUTES } from '@/lib/auth/redirects';
 import { createClient } from '@/lib/supabase/client';
 import type { Route } from 'next';
 
@@ -26,8 +27,10 @@ export default function ResetPasswordPage() {
     setIsLoading(true);
 
     // The recovery link established a session via /auth/callback, so updateUser
-    // applies to the signed-in (recovering) user. This route is protected by the
-    // proxy, so it is only reachable with a live session.
+    // applies to the signed-in (recovering) user. This route is proxy-protected, so
+    // it needs a live session — either the recovery one, or an already-authenticated
+    // user changing their password. Both are legitimate; Supabase does not require
+    // the current password here.
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({ password });
     if (error) {
@@ -37,7 +40,7 @@ export default function ResetPasswordPage() {
     }
 
     toast.success('Password updated');
-    router.push('/boards' as Route);
+    router.push(ROUTES.boards as Route);
     router.refresh();
   }
 
