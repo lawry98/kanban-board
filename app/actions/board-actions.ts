@@ -4,194 +4,221 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
-import { createBoardSchema, updateBoardSchema } from '@/lib/validations/board';
+import {
+  EDITOR_ROLES,
+  OWNER_ROLES,
+  PublicError,
+  logActivity,
+  requireAuth,
+  requireBoardAccess,
+  toActionError,
+} from '@/lib/auth/require-access';
 import { DEFAULT_COLUMNS } from '@/lib/constants';
-import type { CreateBoardInput, UpdateBoardInput } from '@/lib/validations/board';
+import {
+  addBoardMemberSchema,
+  createBoardSchema,
+  updateBoardSchema,
+  uuidSchema,
+} from '@/lib/validations/board';
+import { PUBLIC_PROFILE_SELECT } from '@/types/board';
+import type { ActionResult } from '@/lib/auth/require-access';
+import type { BoardWithDetails } from '@/types';
+import type { Board, BoardMember } from '@prisma/client';
 
-async function requireAuth() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error || !user) throw new Error('Unauthorized');
-  return user;
-}
+/** Gap between adjacent positions; see the fractional-ordering note in task-actions.ts. */
+const POSITION_STEP = 1000;
 
-async function requireBoardMember(boardId: string, userId: string, roles?: string[]) {
-  const member = await prisma.boardMember.findFirst({
-    where: {
-      boardId,
-      userId,
-      ...(roles ? { role: { in: roles as ('OWNER' | 'EDITOR' | 'VIEWER')[] } } : {}),
-    },
-  });
-  if (!member) throw new Error('Forbidden');
-  return member;
-}
-
-export async function createBoard(data: CreateBoardInput) {
+export async function createBoard(input: unknown): Promise<ActionResult<Board>> {
   try {
     const user = await requireAuth();
-    const validated = createBoardSchema.parse(data);
+    const data = createBoardSchema.parse(input);
 
     const board = await prisma.board.create({
       data: {
-        title: validated.title,
-        description: validated.description,
+        title: data.title,
+        description: data.description,
         createdBy: user.id,
-        members: {
-          create: {
-            userId: user.id,
-            role: 'OWNER',
-          },
-        },
+        members: { create: { userId: user.id, role: 'OWNER' } },
         columns: {
           create: DEFAULT_COLUMNS.map((col, index) => ({
             title: col.title,
             color: col.color,
-            position: index,
+            position: (index + 1) * POSITION_STEP,
           })),
         },
       },
     });
 
-    await prisma.activityLog.create({
-      data: {
-        boardId: board.id,
-        userId: user.id,
-        action: 'COLUMN_CREATED',
-        entityType: 'board',
-        entityId: board.id,
-        metadata: { boardTitle: board.title },
-      },
+    await logActivity({
+      boardId: board.id,
+      userId: user.id,
+      action: 'BOARD_CREATED',
+      entityType: 'board',
+      entityId: board.id,
+      metadata: { boardTitle: board.title },
     });
 
     revalidatePath('/boards');
     return { data: board };
   } catch (error) {
-    console.error('createBoard error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to create board' };
+    return toActionError('createBoard', error, 'Failed to create board');
   }
 }
 
-export async function updateBoard(boardId: string, data: UpdateBoardInput) {
+export async function updateBoard(boardId: string, input: unknown): Promise<ActionResult<Board>> {
   try {
-    const user = await requireAuth();
-    await requireBoardMember(boardId, user.id, ['OWNER', 'EDITOR']);
-    const validated = updateBoardSchema.parse(data);
+    const id = uuidSchema.parse(boardId);
+    const { user } = await requireBoardAccess(id, EDITOR_ROLES);
+    const data = updateBoardSchema.parse(input);
 
     const board = await prisma.board.update({
-      where: { id: boardId },
-      data: validated,
-    });
-
-    await prisma.activityLog.create({
+      where: { id },
       data: {
-        boardId,
-        userId: user.id,
-        action: 'COLUMN_UPDATED',
-        entityType: 'board',
-        entityId: boardId,
-        metadata: validated,
+        ...(data.title !== undefined && { title: data.title }),
+        ...(data.description !== undefined && { description: data.description }),
       },
     });
 
-    revalidatePath(`/board/${boardId}`);
+    await logActivity({
+      boardId: id,
+      userId: user.id,
+      action: 'BOARD_UPDATED',
+      entityType: 'board',
+      entityId: id,
+      metadata: { fields: Object.keys(data), boardTitle: board.title },
+    });
+
+    revalidatePath(`/board/${id}`);
     revalidatePath('/boards');
     return { data: board };
   } catch (error) {
-    console.error('updateBoard error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to update board' };
+    return toActionError('updateBoard', error, 'Failed to update board');
   }
 }
 
-export async function deleteBoard(boardId: string) {
+export async function deleteBoard(boardId: string): Promise<ActionResult<{ id: string }>> {
+  let deleted: string;
+
   try {
-    const user = await requireAuth();
-    await requireBoardMember(boardId, user.id, ['OWNER']);
+    const id = uuidSchema.parse(boardId);
+    const { user } = await requireBoardAccess(id, OWNER_ROLES);
 
-    await prisma.board.delete({ where: { id: boardId } });
+    // Logged before the delete: `activity_logs.board_id` cascades, so the row itself goes
+    // away with the board — the write exists so realtime/replication consumers observe it.
+    await logActivity({
+      boardId: id,
+      userId: user.id,
+      action: 'BOARD_DELETED',
+      entityType: 'board',
+      entityId: id,
+      metadata: {},
+    });
 
-    revalidatePath('/boards');
-    redirect('/boards');
+    await prisma.board.delete({ where: { id } });
+    deleted = id;
   } catch (error) {
-    if ((error as { digest?: string }).digest?.startsWith('NEXT_REDIRECT')) throw error;
-    console.error('deleteBoard error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to delete board' };
+    return toActionError('deleteBoard', error, 'Failed to delete board');
   }
+
+  // Outside the try: `redirect()` signals by throwing, and swallowing that in the catch
+  // is what made this action return `{ error }` on failure but `undefined` on success.
+  revalidatePath('/boards');
+  redirect('/boards');
+
+  return { data: { id: deleted } };
 }
 
-export async function addBoardMember(boardId: string, email: string, role: 'EDITOR' | 'VIEWER') {
+export async function addBoardMember(
+  boardId: string,
+  input: unknown,
+): Promise<ActionResult<BoardMember>> {
   try {
-    const user = await requireAuth();
-    await requireBoardMember(boardId, user.id, ['OWNER']);
+    const id = uuidSchema.parse(boardId);
+    const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    const { email, role } = addBoardMemberSchema.parse(input);
 
-    const targetProfile = await prisma.profile.findUnique({ where: { email } });
-    if (!targetProfile) return { error: 'User not found' };
+    const targetProfile = await prisma.profile.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (!targetProfile) throw new PublicError('No account found for that email address');
 
     const existing = await prisma.boardMember.findFirst({
-      where: { boardId, userId: targetProfile.id },
+      where: { boardId: id, userId: targetProfile.id },
+      select: { id: true },
     });
-    if (existing) return { error: 'User is already a member' };
+    if (existing) throw new PublicError('User is already a member');
 
     const member = await prisma.boardMember.create({
-      data: { boardId, userId: targetProfile.id, role },
+      data: { boardId: id, userId: targetProfile.id, role },
     });
 
-    await prisma.activityLog.create({
-      data: {
-        boardId,
-        userId: user.id,
-        action: 'MEMBER_ADDED',
-        entityType: 'member',
-        entityId: member.id,
-        metadata: { email, role },
-      },
+    await logActivity({
+      boardId: id,
+      userId: user.id,
+      action: 'MEMBER_ADDED',
+      entityType: 'member',
+      entityId: member.id,
+      metadata: { email, role },
     });
 
-    revalidatePath(`/board/${boardId}`);
+    revalidatePath(`/board/${id}`);
     return { data: member };
   } catch (error) {
-    console.error('addBoardMember error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to add member' };
+    return toActionError('addBoardMember', error, 'Failed to add member');
   }
 }
 
-export async function removeBoardMember(boardId: string, userId: string) {
+export async function removeBoardMember(
+  boardId: string,
+  userId: string,
+): Promise<ActionResult<true>> {
   try {
-    const user = await requireAuth();
-    await requireBoardMember(boardId, user.id, ['OWNER']);
+    const id = uuidSchema.parse(boardId);
+    const targetUserId = uuidSchema.parse(userId);
+    const { user } = await requireBoardAccess(id, OWNER_ROLES);
 
-    await prisma.boardMember.deleteMany({ where: { boardId, userId } });
+    // Read-then-delete in one transaction: removing the last OWNER would orphan the board
+    // with no in-app way to recover it.
+    await prisma.$transaction(async (tx) => {
+      const target = await tx.boardMember.findFirst({
+        where: { boardId: id, userId: targetUserId },
+      });
+      if (!target) throw new PublicError('User is not a member of this board');
 
-    await prisma.activityLog.create({
-      data: {
-        boardId,
-        userId: user.id,
-        action: 'MEMBER_REMOVED',
-        entityType: 'member',
-        entityId: userId,
-        metadata: { removedUserId: userId },
-      },
+      if (target.role === 'OWNER') {
+        const ownerCount = await tx.boardMember.count({ where: { boardId: id, role: 'OWNER' } });
+        if (ownerCount <= 1) {
+          throw new PublicError('Cannot remove the last owner — promote another owner first');
+        }
+      }
+
+      await tx.boardMember.delete({ where: { id: target.id } });
     });
 
-    revalidatePath(`/board/${boardId}`);
+    await logActivity({
+      boardId: id,
+      userId: user.id,
+      action: 'MEMBER_REMOVED',
+      entityType: 'member',
+      entityId: targetUserId,
+      metadata: { removedUserId: targetUserId },
+    });
+
+    revalidatePath(`/board/${id}`);
     return { data: true };
   } catch (error) {
-    console.error('removeBoardMember error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to remove member' };
+    return toActionError('removeBoardMember', error, 'Failed to remove member');
   }
 }
 
-export async function getBoardData(boardId: string) {
+export async function getBoardData(boardId: string): Promise<ActionResult<BoardWithDetails>> {
   try {
-    const user = await requireAuth();
-    await requireBoardMember(boardId, user.id);
+    const id = uuidSchema.parse(boardId);
+    await requireBoardAccess(id);
 
     const board = await prisma.board.findUnique({
-      where: { id: boardId },
+      where: { id },
       include: {
         columns: {
           orderBy: { position: 'asc' },
@@ -199,22 +226,20 @@ export async function getBoardData(boardId: string) {
             tasks: {
               orderBy: { position: 'asc' },
               include: {
-                assignee: true,
-                creator: true,
+                assignee: { select: PUBLIC_PROFILE_SELECT },
+                creator: { select: PUBLIC_PROFILE_SELECT },
               },
             },
           },
         },
-        members: {
-          include: { profile: true },
-        },
-        creator: true,
+        members: { include: { profile: true } },
+        creator: { select: PUBLIC_PROFILE_SELECT },
       },
     });
+    if (!board) throw new PublicError('Board not found');
 
     return { data: board };
   } catch (error) {
-    console.error('getBoardData error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to fetch board' };
+    return toActionError('getBoardData', error, 'Failed to fetch board');
   }
 }

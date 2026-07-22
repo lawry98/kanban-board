@@ -3,84 +3,136 @@
 import { revalidatePath } from 'next/cache';
 
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
-import type { UpdateTaskInput } from '@/lib/validations/task';
+import {
+  EDITOR_ROLES,
+  logActivity,
+  requireBoardAccess,
+  requireBoardMemberExists,
+  requireColumnAccess,
+  requireColumnOnBoard,
+  requireTaskAccess,
+  toActionError,
+} from '@/lib/auth/require-access';
+import { createTaskSchema, moveTaskSchema, updateTaskSchema } from '@/lib/validations/task';
+import { uuidSchema } from '@/lib/validations/board';
+import { PUBLIC_PROFILE_SELECT } from '@/types/board';
+import type { ActionResult } from '@/lib/auth/require-access';
+import type { TaskWithAssignee } from '@/types';
+import type { ActivityLog, Profile } from '@prisma/client';
 
-async function requireAuth() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error || !user) throw new Error('Unauthorized');
-  return user;
+/**
+ * Fractional (sparse) ordering invariant
+ * --------------------------------------
+ * `position` is a Float, not a dense 0..n index. Tasks are ordered by `position ASC`;
+ * the only requirement is that positions are strictly increasing within a column.
+ * New rows are appended at `max + POSITION_STEP`, and a move writes the midpoint of its
+ * two new neighbours, so a move is ONE row update instead of rewriting the whole column.
+ * That removes both the O(n) write amplification and the lost-update race where two
+ * concurrent moves each renumbered a column from a stale read.
+ *
+ * Limit: repeatedly bisecting the same gap halves it each time, and after ~50 splits it
+ * hits float precision (neighbours compare equal). A rebalance — rewriting one column's
+ * positions to `(index + 1) * POSITION_STEP` inside a transaction — is the fix, and would
+ * be triggered when a computed gap falls below MIN_POSITION_GAP. Not implemented here
+ * because the condition is unreachable in normal use; if it is ever hit, ordering degrades
+ * to "ties broken arbitrarily", not data loss.
+ */
+const POSITION_STEP = 1000;
+
+interface Positioned {
+  id: string;
+  position: number;
 }
 
-async function requireBoardMember(boardId: string, userId: string, roles?: string[]) {
-  const member = await prisma.boardMember.findFirst({
-    where: {
-      boardId,
-      userId,
-      ...(roles ? { role: { in: roles as ('OWNER' | 'EDITOR' | 'VIEWER')[] } } : {}),
-    },
-  });
-  if (!member) throw new Error('Forbidden');
-  return member;
+/** Midpoint between the neighbours that would surround `index` in `siblings`. */
+function positionForIndex(siblings: Positioned[], index: number): number {
+  const clamped = Math.max(0, Math.min(index, siblings.length));
+  const prev = clamped > 0 ? siblings[clamped - 1] : undefined;
+  const next = clamped < siblings.length ? siblings[clamped] : undefined;
+
+  if (!prev && !next) return POSITION_STEP;
+  if (!prev && next) return next.position - POSITION_STEP;
+  if (prev && !next) return prev.position + POSITION_STEP;
+  return ((prev as Positioned).position + (next as Positioned).position) / 2;
 }
 
-export async function createTask(
-  columnId: string,
-  boardId: string,
-  data: { title: string; position?: number },
-) {
+const TASK_INCLUDE = {
+  assignee: { select: PUBLIC_PROFILE_SELECT },
+  creator: { select: PUBLIC_PROFILE_SELECT },
+} as const;
+
+export async function createTask(input: unknown): Promise<ActionResult<TaskWithAssignee>> {
   try {
-    const user = await requireAuth();
-    await requireBoardMember(boardId, user.id, ['OWNER', 'EDITOR']);
+    const data = createTaskSchema.parse(input);
+
+    // The board is derived from the column being written to. There is no client-supplied
+    // boardId to disagree with it, so a column on someone else's board simply fails authz.
+    const { user, boardId } = await requireColumnAccess(data.columnId, EDITOR_ROLES);
+
+    if (data.assigneeId) await requireBoardMemberExists(boardId, data.assigneeId);
 
     const maxPosition = await prisma.task.aggregate({
-      where: { columnId },
+      where: { columnId: data.columnId },
       _max: { position: true },
     });
-    const position = data.position ?? (maxPosition._max.position ?? -1) + 1;
 
     const task = await prisma.task.create({
       data: {
-        columnId,
+        columnId: data.columnId,
         boardId,
         title: data.title,
-        position,
+        description: data.description,
+        priority: data.priority ?? 'NONE',
+        labels: data.labels ?? [],
+        dueDate: data.dueDate ? new Date(data.dueDate) : null,
+        assigneeId: data.assigneeId ?? null,
+        position: (maxPosition._max.position ?? 0) + POSITION_STEP,
         createdBy: user.id,
       },
-      include: { assignee: true, creator: true },
+      include: TASK_INCLUDE,
     });
 
-    await prisma.activityLog.create({
-      data: {
-        boardId,
-        userId: user.id,
-        action: 'TASK_CREATED',
-        entityType: 'task',
-        entityId: task.id,
-        metadata: { title: data.title },
-      },
+    await logActivity({
+      boardId,
+      userId: user.id,
+      action: 'TASK_CREATED',
+      entityType: 'task',
+      entityId: task.id,
+      metadata: { title: task.title },
     });
 
     revalidatePath(`/board/${boardId}`);
     return { data: task };
   } catch (error) {
-    console.error('createTask error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to create task' };
+    return toActionError('createTask', error, 'Failed to create task');
   }
 }
 
-export async function updateTask(taskId: string, data: UpdateTaskInput) {
+export async function updateTask(
+  taskId: string,
+  input: unknown,
+): Promise<ActionResult<TaskWithAssignee>> {
   try {
-    const user = await requireAuth();
-    const existing = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-    await requireBoardMember(existing.boardId, user.id, ['OWNER', 'EDITOR']);
+    const id = uuidSchema.parse(taskId);
+    const { user, boardId } = await requireTaskAccess(id, EDITOR_ROLES);
+    const data = updateTaskSchema.parse(input);
+
+    // A column id in the payload is a second client-supplied id: prove it is on the same
+    // board before it can be written.
+    let position: number | undefined;
+    if (data.columnId !== undefined) {
+      await requireColumnOnBoard(data.columnId, boardId);
+      const maxPosition = await prisma.task.aggregate({
+        where: { columnId: data.columnId },
+        _max: { position: true },
+      });
+      position = (maxPosition._max.position ?? 0) + POSITION_STEP;
+    }
+
+    if (data.assigneeId) await requireBoardMemberExists(boardId, data.assigneeId);
 
     const task = await prisma.task.update({
-      where: { id: taskId },
+      where: { id },
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
@@ -90,171 +142,130 @@ export async function updateTask(taskId: string, data: UpdateTaskInput) {
           dueDate: data.dueDate ? new Date(data.dueDate) : null,
         }),
         ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
-        ...(data.columnId !== undefined && { columnId: data.columnId }),
+        ...(data.columnId !== undefined && { columnId: data.columnId, position }),
       },
-      include: { assignee: true, creator: true },
+      include: TASK_INCLUDE,
     });
 
-    await prisma.activityLog.create({
-      data: {
-        boardId: existing.boardId,
-        userId: user.id,
-        action: 'TASK_UPDATED',
-        entityType: 'task',
-        entityId: taskId,
-        metadata: JSON.parse(JSON.stringify(data)),
-      },
+    await logActivity({
+      boardId,
+      userId: user.id,
+      action: 'TASK_UPDATED',
+      entityType: 'task',
+      entityId: id,
+      // Whitelisted: never persist the raw client payload into activity_logs.metadata.
+      metadata: { fields: Object.keys(data), taskTitle: task.title },
     });
 
-    revalidatePath(`/board/${existing.boardId}`);
+    revalidatePath(`/board/${boardId}`);
     return { data: task };
   } catch (error) {
-    console.error('updateTask error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to update task' };
+    return toActionError('updateTask', error, 'Failed to update task');
   }
 }
 
-export async function moveTask(taskId: string, targetColumnId: string, newPosition: number) {
+export async function moveTask(input: unknown): Promise<ActionResult<true>> {
   try {
-    const user = await requireAuth();
-    const existing = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-    await requireBoardMember(existing.boardId, user.id, ['OWNER', 'EDITOR']);
+    const { taskId, targetColumnId, targetIndex } = moveTaskSchema.parse(input);
+    const { user, boardId, task } = await requireTaskAccess(taskId, EDITOR_ROLES);
 
-    const sourceColumnId = existing.columnId;
-    const sourcePosition = existing.position;
+    // The destination column must live on the task's own board.
+    const targetColumn = await requireColumnOnBoard(targetColumnId, boardId);
 
-    // Get column titles for activity log
-    const [sourceCol, targetCol] = await Promise.all([
-      prisma.column.findUnique({ where: { id: sourceColumnId }, select: { title: true } }),
-      prisma.column.findUnique({ where: { id: targetColumnId }, select: { title: true } }),
-    ]);
-
-    if (sourceColumnId === targetColumnId) {
-      // Same column reorder
-      const tasks = await prisma.task.findMany({
-        where: { columnId: sourceColumnId },
-        orderBy: { position: 'asc' },
-      });
-
-      const reordered = tasks.filter((t) => t.id !== taskId);
-      reordered.splice(newPosition, 0, { ...existing });
-
-      await Promise.all(
-        reordered.map((t, index) =>
-          prisma.task.update({ where: { id: t.id }, data: { position: index } }),
-        ),
-      );
-    } else {
-      // Cross-column move: remove from source, insert into target
-      const [sourceTasks, targetTasks] = await Promise.all([
-        prisma.task.findMany({
-          where: { columnId: sourceColumnId, id: { not: taskId } },
-          orderBy: { position: 'asc' },
-        }),
-        prisma.task.findMany({
-          where: { columnId: targetColumnId },
-          orderBy: { position: 'asc' },
-        }),
-      ]);
-
-      // Reorder source column
-      await Promise.all(
-        sourceTasks.map((t, index) =>
-          prisma.task.update({ where: { id: t.id }, data: { position: index } }),
-        ),
-      );
-
-      // Insert task into target column at newPosition
-      const updatedTargetTasks = [...targetTasks];
-      updatedTargetTasks.splice(newPosition, 0, { ...existing, columnId: targetColumnId });
-
-      await Promise.all(
-        updatedTargetTasks.map((t, index) =>
-          prisma.task.update({
-            where: { id: t.id },
-            data: { position: index, columnId: targetColumnId },
-          }),
-        ),
-      );
-    }
-
-    await prisma.activityLog.create({
-      data: {
-        boardId: existing.boardId,
-        userId: user.id,
-        action: 'TASK_MOVED',
-        entityType: 'task',
-        entityId: taskId,
-        metadata: {
-          fromColumn: sourceCol?.title ?? sourceColumnId,
-          toColumn: targetCol?.title ?? targetColumnId,
-          fromPosition: sourcePosition,
-          toPosition: newPosition,
-        },
-      },
-    });
-
-    revalidatePath(`/board/${existing.boardId}`);
-    return { data: true };
-  } catch (error) {
-    console.error('moveTask error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to move task' };
-  }
-}
-
-export async function deleteTask(taskId: string) {
-  try {
-    const user = await requireAuth();
-    const existing = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-    await requireBoardMember(existing.boardId, user.id, ['OWNER', 'EDITOR']);
-
-    await prisma.task.delete({ where: { id: taskId } });
-
-    // Reorder remaining tasks in column
-    const remaining = await prisma.task.findMany({
-      where: { columnId: existing.columnId },
+    const siblings = await prisma.task.findMany({
+      where: { columnId: targetColumnId, id: { not: taskId } },
       orderBy: { position: 'asc' },
+      select: { id: true, position: true },
     });
-    await Promise.all(
-      remaining.map((t, index) =>
-        prisma.task.update({ where: { id: t.id }, data: { position: index } }),
-      ),
-    );
 
-    await prisma.activityLog.create({
-      data: {
-        boardId: existing.boardId,
-        userId: user.id,
-        action: 'TASK_DELETED',
-        entityType: 'task',
-        entityId: taskId,
-        metadata: { title: existing.title },
+    const position = positionForIndex(siblings, targetIndex);
+
+    // Single row touched — no transaction needed and no cross-task write amplification.
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { columnId: targetColumnId, position },
+    });
+
+    const sourceColumn =
+      task.columnId === targetColumnId
+        ? targetColumn
+        : await prisma.column.findUnique({
+            where: { id: task.columnId },
+            select: { title: true },
+          });
+
+    await logActivity({
+      boardId,
+      userId: user.id,
+      action: 'TASK_MOVED',
+      entityType: 'task',
+      entityId: taskId,
+      metadata: {
+        taskTitle: task.title,
+        fromColumn: sourceColumn?.title ?? 'Unknown',
+        toColumn: targetColumn.title,
       },
     });
 
-    revalidatePath(`/board/${existing.boardId}`);
+    revalidatePath(`/board/${boardId}`);
     return { data: true };
   } catch (error) {
-    console.error('deleteTask error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to delete task' };
+    return toActionError('moveTask', error, 'Failed to move task');
   }
 }
 
-export async function getActivityLogs(boardId: string, limit = 50) {
+export async function deleteTask(taskId: string): Promise<ActionResult<true>> {
   try {
-    const user = await requireAuth();
-    await requireBoardMember(boardId, user.id);
+    const id = uuidSchema.parse(taskId);
+    const { user, boardId, task } = await requireTaskAccess(id, EDITOR_ROLES);
+
+    // Sparse positions mean the surviving rows need no renumbering after a delete.
+    await prisma.task.delete({ where: { id } });
+
+    await logActivity({
+      boardId,
+      userId: user.id,
+      action: 'TASK_DELETED',
+      entityType: 'task',
+      entityId: id,
+      metadata: { title: task.title },
+    });
+
+    revalidatePath(`/board/${boardId}`);
+    return { data: true };
+  } catch (error) {
+    return toActionError('deleteTask', error, 'Failed to delete task');
+  }
+}
+
+const MAX_ACTIVITY_LOG_LIMIT = 100;
+
+export type ActivityLogWithProfile = ActivityLog & {
+  profile: Pick<Profile, 'id' | 'fullName' | 'avatarUrl'> | null;
+};
+
+export async function getActivityLogs(
+  boardId: string,
+  limit = 50,
+): Promise<ActionResult<ActivityLogWithProfile[]>> {
+  try {
+    const id = uuidSchema.parse(boardId);
+    await requireBoardAccess(id);
+
+    // Clamped: `limit` reached `take` unbounded, so a client could request 1,000,000 rows.
+    const take = Number.isFinite(limit)
+      ? Math.min(Math.max(Math.trunc(limit), 1), MAX_ACTIVITY_LOG_LIMIT)
+      : 50;
 
     const logs = await prisma.activityLog.findMany({
-      where: { boardId },
-      include: { profile: true },
+      where: { boardId: id },
+      include: { profile: { select: PUBLIC_PROFILE_SELECT } },
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      take,
     });
 
     return { data: logs };
   } catch (error) {
-    console.error('getActivityLogs error:', error);
-    return { error: error instanceof Error ? error.message : 'Failed to fetch activity logs' };
+    return toActionError('getActivityLogs', error, 'Failed to fetch activity logs');
   }
 }

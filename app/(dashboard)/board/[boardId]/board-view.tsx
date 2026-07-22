@@ -30,7 +30,8 @@ function BoardContent() {
   async function handleDragEnd(result: DropResult) {
     const { source, destination, draggableId } = result;
     if (!destination) return;
-    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index)
+      return;
 
     // Optimistic update
     dispatch({
@@ -45,7 +46,11 @@ function BoardContent() {
     });
 
     // Server sync
-    const result2 = await moveTask(draggableId, destination.droppableId, destination.index);
+    const result2 = await moveTask({
+      taskId: draggableId,
+      targetColumnId: destination.droppableId,
+      targetIndex: destination.index,
+    });
     if (result2.error) {
       toast.error('Failed to move task');
       // Revert by re-dispatching the original position

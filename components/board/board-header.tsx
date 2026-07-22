@@ -16,12 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { addBoardMember, updateBoard } from '@/app/actions/board-actions';
 import { useBoardContext } from '@/contexts/board-context';
 
@@ -62,7 +57,10 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
     if (!inviteEmail.trim()) return;
     setIsInviting(true);
 
-    const result = await addBoardMember(board.id, inviteEmail.trim(), inviteRole);
+    const result = await addBoardMember(board.id, {
+      email: inviteEmail.trim(),
+      role: inviteRole,
+    });
     setIsInviting(false);
 
     if (result.error) {
@@ -90,7 +88,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
                 setTitleValue(board.title);
               }
             }}
-            className="h-8 text-xl font-semibold px-1 w-64"
+            className="h-8 w-64 px-1 text-xl font-semibold"
             autoFocus
           />
         ) : (
@@ -101,7 +99,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
             {board.title}
           </h1>
         )}
-        <p className="text-xs text-muted-foreground">
+        <p className="text-muted-foreground text-xs">
           {state.columns.length} columns · {taskCount} tasks
         </p>
       </div>
@@ -116,7 +114,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
               return (
                 <Tooltip key={member.userId}>
                   <TooltipTrigger asChild>
-                    <Avatar className="h-7 w-7 border-2 border-background cursor-default">
+                    <Avatar className="border-background h-7 w-7 cursor-default border-2">
                       {member.profile.avatarUrl && (
                         <AvatarImage src={member.profile.avatarUrl} alt={name} />
                       )}
@@ -125,7 +123,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
                   </TooltipTrigger>
                   <TooltipContent>
                     <p>{name}</p>
-                    <p className="text-xs text-muted-foreground capitalize">
+                    <p className="text-muted-foreground text-xs capitalize">
                       {member.role.toLowerCase()}
                     </p>
                   </TooltipContent>
@@ -133,7 +131,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
               );
             })}
             {state.members.length > 5 && (
-              <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium">
+              <div className="border-background bg-muted flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-medium">
                 +{state.members.length - 5}
               </div>
             )}
@@ -153,7 +151,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
               <form onSubmit={handleInvite} className="space-y-3">
                 <div>
                   <h4 className="text-sm font-medium">Invite team member</h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-muted-foreground mt-0.5 text-xs">
                     They must already have an account.
                   </p>
                 </div>

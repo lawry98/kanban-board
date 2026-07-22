@@ -34,7 +34,10 @@ export function CreateBoardDialog({ open, onOpenChange }: CreateBoardDialogProps
     if (!title.trim()) return;
 
     setIsLoading(true);
-    const result = await createBoard({ title: title.trim(), description: description.trim() || undefined });
+    const result = await createBoard({
+      title: title.trim(),
+      description: description.trim() || undefined,
+    });
     setIsLoading(false);
 
     if (result.error) {
@@ -55,9 +58,7 @@ export function CreateBoardDialog({ open, onOpenChange }: CreateBoardDialogProps
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>Create board</DialogTitle>
-            <DialogDescription>
-              Give your board a name to get started.
-            </DialogDescription>
+            <DialogDescription>Give your board a name to get started.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">

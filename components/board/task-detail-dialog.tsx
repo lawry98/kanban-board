@@ -8,12 +8,7 @@ import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -111,11 +106,11 @@ function TaskForm({ task, onClose }: TaskFormProps) {
     setLabels(labels.filter((l) => l !== label));
   }
 
-  const creatorName = task.creator.fullName ?? task.creator.email;
+  const creatorName = task.creator?.fullName ?? 'a deleted user';
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="sr-only">Task details</DialogTitle>
         </DialogHeader>
@@ -225,12 +220,12 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           {/* Labels */}
           <div className="space-y-2">
             <Label>Labels</Label>
-            <div className="flex flex-wrap gap-1 min-h-[28px]">
+            <div className="flex min-h-[28px] flex-wrap gap-1">
               {labels.map((label) => (
                 <Badge key={label} variant="secondary" className="gap-1 pr-1">
                   {label}
                   {canEdit && (
-                    <button onClick={() => removeLabel(label)} className="rounded hover:bg-muted">
+                    <button onClick={() => removeLabel(label)} className="hover:bg-muted rounded">
                       <X className="h-3 w-3" />
                     </button>
                   )}
@@ -251,7 +246,12 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                   placeholder="Add a label…"
                   className="h-8"
                 />
-                <Button size="sm" variant="outline" onClick={addLabel} disabled={!labelInput.trim()}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={addLabel}
+                  disabled={!labelInput.trim()}
+                >
                   Add
                 </Button>
               </div>
@@ -261,10 +261,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           <Separator />
 
           {/* Meta */}
-          <div className="text-xs text-muted-foreground space-y-1">
+          <div className="text-muted-foreground space-y-1 text-xs">
             <p>
-              Created by {creatorName} ·{' '}
-              {format(new Date(task.createdAt), 'MMM d, yyyy')}
+              Created by {creatorName} · {format(new Date(task.createdAt), 'MMM d, yyyy')}
             </p>
           </div>
 
@@ -282,7 +281,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                   {isDeleting ? 'Deleting…' : 'Delete'}
                 </Button>
               )}
-              <div className="flex gap-2 ml-auto">
+              <div className="ml-auto flex gap-2">
                 <Button variant="outline" size="sm" onClick={onClose}>
                   Cancel
                 </Button>

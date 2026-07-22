@@ -28,7 +28,7 @@ interface ColumnProps {
 }
 
 export function Column({ column, onTaskClick }: ColumnProps) {
-  const { board, dispatch, canEdit } = useBoardContext();
+  const { dispatch, canEdit } = useBoardContext();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(column.title);
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -67,7 +67,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
     if (!newTaskTitle.trim() || isCreatingTask) return;
     setIsCreatingTask(true);
 
-    const result = await createTask(column.id, board.id, { title: newTaskTitle.trim() });
+    const result = await createTask({ columnId: column.id, title: newTaskTitle.trim() });
     setIsCreatingTask(false);
 
     if (result.error) {
@@ -86,10 +86,10 @@ export function Column({ column, onTaskClick }: ColumnProps) {
     <div className="flex w-72 shrink-0 flex-col gap-2">
       {/* Column header */}
       <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {column.color && (
             <div
-              className="h-2.5 w-2.5 rounded-full shrink-0"
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
               style={{ backgroundColor: column.color }}
             />
           )}
@@ -107,19 +107,19 @@ export function Column({ column, onTaskClick }: ColumnProps) {
                   setTitleValue(column.title);
                 }
               }}
-              className="h-7 text-sm font-medium px-1"
+              className="h-7 px-1 text-sm font-medium"
               autoFocus
             />
           ) : (
             <h3
-              className={`text-sm font-medium truncate ${canEdit ? 'cursor-pointer hover:text-foreground/70' : ''}`}
+              className={`truncate text-sm font-medium ${canEdit ? 'hover:text-foreground/70 cursor-pointer' : ''}`}
               onClick={() => canEdit && setIsEditingTitle(true)}
             >
               {column.title}
             </h3>
           )}
 
-          <Badge variant="secondary" className="text-xs shrink-0 h-5 px-1.5">
+          <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-xs">
             {column.tasks.length}
           </Badge>
         </div>
@@ -158,17 +158,17 @@ export function Column({ column, onTaskClick }: ColumnProps) {
       <Droppable droppableId={column.id}>
         {(provided, snapshot) => (
           <ScrollArea
-            className={`rounded-lg border bg-muted/30 transition-colors ${
+            className={`bg-muted/30 rounded-lg border transition-colors ${
               snapshot.isDraggingOver ? 'bg-muted/60' : ''
             }`}
           >
             <div
               ref={provided.innerRef}
               {...provided.droppableProps}
-              className="flex flex-col gap-2 p-2 min-h-[60px]"
+              className="flex min-h-[60px] flex-col gap-2 p-2"
             >
               {column.tasks.length === 0 && !snapshot.isDraggingOver && (
-                <p className="text-xs text-muted-foreground text-center py-4">No tasks yet</p>
+                <p className="text-muted-foreground py-4 text-center text-xs">No tasks yet</p>
               )}
 
               {column.tasks.map((task, index) => (
@@ -185,7 +185,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
       {canEdit && (
         <div>
           {isAddingTask ? (
-            <div className="space-y-2 p-2 rounded-lg border bg-card">
+            <div className="bg-card space-y-2 rounded-lg border p-2">
               <Input
                 value={newTaskTitle}
                 onChange={(e) => setNewTaskTitle(e.target.value)}
@@ -224,7 +224,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground w-full justify-start"
               onClick={() => setIsAddingTask(true)}
             >
               <Plus className="mr-2 h-4 w-4" />
