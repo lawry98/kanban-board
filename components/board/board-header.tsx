@@ -1,23 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Activity, UserPlus } from 'lucide-react';
+import { Activity, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { addBoardMember, updateBoard } from '@/app/actions/board-actions';
+import { MembersDialog } from '@/components/board/members-dialog';
+import { ShareBoardDialog } from '@/components/board/share-board-dialog';
+import { updateBoard } from '@/app/actions/board-actions';
 import { useBoardContext } from '@/contexts/board-context';
 
 interface BoardHeaderProps {
@@ -28,10 +21,8 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
   const { state, board, isOwner, canEdit } = useBoardContext();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(board.title);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'EDITOR' | 'VIEWER'>('EDITOR');
-  const [isInviting, setIsInviting] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
 
   const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
 
@@ -50,27 +41,6 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
       toast.success('Board updated');
     }
     setIsEditingTitle(false);
-  }
-
-  async function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inviteEmail.trim()) return;
-    setIsInviting(true);
-
-    const result = await addBoardMember(board.id, {
-      email: inviteEmail.trim(),
-      role: inviteRole,
-    });
-    setIsInviting(false);
-
-    if (result.error) {
-      toast.error(result.error);
-      return;
-    }
-
-    toast.success(`${inviteEmail} added to the board`);
-    setInviteEmail('');
-    setInviteOpen(false);
   }
 
   return (
@@ -105,16 +75,21 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Member avatars */}
+        {/* Member avatars — click to open member management (all roles). */}
         <TooltipProvider>
-          <div className="flex -space-x-2">
+          <button
+            type="button"
+            onClick={() => setMembersOpen(true)}
+            className="focus-visible:ring-ring flex -space-x-2 rounded-full focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+            aria-label="View members"
+          >
             {state.members.slice(0, 5).map((member) => {
               const name = member.profile.fullName ?? member.profile.email;
               const initials = name.slice(0, 2).toUpperCase();
               return (
                 <Tooltip key={member.userId}>
                   <TooltipTrigger asChild>
-                    <Avatar className="border-background h-7 w-7 cursor-default border-2">
+                    <Avatar className="border-background h-7 w-7 border-2">
                       {member.profile.avatarUrl && (
                         <AvatarImage src={member.profile.avatarUrl} alt={name} />
                       )}
@@ -135,57 +110,15 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
                 +{state.members.length - 5}
               </div>
             )}
-          </div>
+          </button>
         </TooltipProvider>
 
-        {/* Invite member */}
+        {/* Share (owner-only) */}
         {isOwner && (
-          <Popover open={inviteOpen} onOpenChange={setInviteOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Invite
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80" align="end">
-              <form onSubmit={handleInvite} className="space-y-3">
-                <div>
-                  <h4 className="text-sm font-medium">Invite team member</h4>
-                  <p className="text-muted-foreground mt-0.5 text-xs">
-                    They must already have an account.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input
-                    type="email"
-                    placeholder="colleague@example.com"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Role</Label>
-                  <Select
-                    value={inviteRole}
-                    onValueChange={(v) => setInviteRole(v as 'EDITOR' | 'VIEWER')}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="EDITOR">Editor — can create and edit tasks</SelectItem>
-                      <SelectItem value="VIEWER">Viewer — read-only access</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button type="submit" size="sm" className="w-full" disabled={isInviting}>
-                  {isInviting ? 'Inviting…' : 'Send invite'}
-                </Button>
-              </form>
-            </PopoverContent>
-          </Popover>
+          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+            <Share2 className="mr-2 h-4 w-4" />
+            Share
+          </Button>
         )}
 
         {/* Activity feed */}
@@ -194,6 +127,11 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           Activity
         </Button>
       </div>
+
+      {isOwner && (
+        <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />
+      )}
+      <MembersDialog open={membersOpen} onOpenChange={setMembersOpen} />
     </div>
   );
 }

@@ -31,6 +31,8 @@ const ACTION_DESCRIPTIONS: Record<Action, (meta: Record<string, string>) => stri
   MEMBER_ADDED: (meta) =>
     `added ${meta.email ?? 'a member'} as ${meta.role?.toLowerCase() ?? 'member'}`,
   MEMBER_REMOVED: () => 'removed a member',
+  MEMBER_ROLE_CHANGED: (meta) =>
+    `changed ${meta.email ?? 'a member'}'s role to ${meta.role?.toLowerCase() ?? 'member'}`,
 };
 
 /**
