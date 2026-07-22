@@ -214,6 +214,8 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 `hooks/use-realtime.ts` subscribes per board and, on any `postgres_changes` event, debounces (300 ms) and re-fetches the whole board via `getBoardData`, dispatching `SYNC_STATE`. Syncs are sequence-numbered (a stale in-flight fetch cannot clobber newer state) and re-run on `SUBSCRIBED` (reconnect catch-up), tab refocus, and `online`. Deletes require `REPLICA IDENTITY FULL` (set in the migration) or their `board_id` filter never matches.
 
+**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the *subscriber's* role (`authenticated`) under RLS. Prisma creates tables as the `postgres` owner and never grants DML to the Supabase roles, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grant is in `20260722000000_realtime_select_grants`; RLS still gates which rows are visible, so it widens nothing. When you publish a new table to `supabase_realtime`, add its `GRANT SELECT` too.
+
 > Known limitation: a client's **own** writes echo back and trigger a resync (no origin filtering yet). The better design — server-emitted broadcast carrying an origin id, applied as a delta — is noted in the hook and deliberately out of scope for now.
 
 ### Row Level Security — what it does and does NOT do
