@@ -34,6 +34,12 @@ export const addBoardMemberSchema = z.object({
   role: z.enum(['EDITOR', 'VIEWER']),
 });
 
+/** OWNER is deliberately not assignable here — ownership transfer is a later feature. */
+export const changeMemberRoleSchema = z.object({
+  role: z.enum(['EDITOR', 'VIEWER']),
+});
+
 export type CreateBoardInput = z.infer<typeof createBoardSchema>;
 export type UpdateBoardInput = z.infer<typeof updateBoardSchema>;
 export type AddBoardMemberInput = z.infer<typeof addBoardMemberSchema>;
+export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;

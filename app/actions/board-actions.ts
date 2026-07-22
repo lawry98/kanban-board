@@ -11,11 +11,13 @@ import {
   logActivity,
   requireAuth,
   requireBoardAccess,
+  requireBoardMember,
   toActionError,
 } from '@/lib/auth/require-access';
 import { DEFAULT_COLUMNS } from '@/lib/constants';
 import {
   addBoardMemberSchema,
+  changeMemberRoleSchema,
   createBoardSchema,
   updateBoardSchema,
   uuidSchema,
@@ -210,6 +212,92 @@ export async function removeBoardMember(
   } catch (error) {
     return toActionError('removeBoardMember', error, 'Failed to remove member');
   }
+}
+
+export async function changeMemberRole(
+  boardId: string,
+  userId: string,
+  input: unknown,
+): Promise<ActionResult<BoardMember>> {
+  try {
+    const id = uuidSchema.parse(boardId);
+    const targetUserId = uuidSchema.parse(userId);
+    const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    const { role } = changeMemberRoleSchema.parse(input);
+
+    // Read-then-update in one transaction so the OWNER-target check cannot race a
+    // concurrent role change. An OWNER's role is untouchable here — the schema
+    // already forbids assigning OWNER; this also forbids demoting one.
+    const updated = await prisma.$transaction(async (tx) => {
+      const target = await tx.boardMember.findFirst({
+        where: { boardId: id, userId: targetUserId },
+        include: { profile: { select: { email: true } } },
+      });
+      if (!target) throw new PublicError('User is not a member of this board');
+      if (target.role === 'OWNER') {
+        throw new PublicError("Owners' roles can't be changed here");
+      }
+
+      const member = await tx.boardMember.update({ where: { id: target.id }, data: { role } });
+      return { member, email: target.profile.email };
+    });
+
+    await logActivity({
+      boardId: id,
+      userId: user.id,
+      action: 'MEMBER_ROLE_CHANGED',
+      entityType: 'member',
+      entityId: updated.member.id,
+      metadata: { email: updated.email, role },
+    });
+
+    revalidatePath(`/board/${id}`);
+    return { data: updated.member };
+  } catch (error) {
+    return toActionError('changeMemberRole', error, 'Failed to change member role');
+  }
+}
+
+export async function leaveBoard(boardId: string): Promise<ActionResult<{ id: string }>> {
+  let leftBoard: string;
+
+  try {
+    const id = uuidSchema.parse(boardId);
+    const user = await requireAuth();
+    const membership = await requireBoardMember(id, user.id);
+
+    // Same last-owner guard as removeBoardMember: leaving as the sole owner would
+    // orphan the board with no in-app way to recover it.
+    await prisma.$transaction(async (tx) => {
+      if (membership.role === 'OWNER') {
+        const ownerCount = await tx.boardMember.count({ where: { boardId: id, role: 'OWNER' } });
+        if (ownerCount <= 1) {
+          throw new PublicError('Cannot leave as the last owner — promote another owner first');
+        }
+      }
+      await tx.boardMember.delete({ where: { id: membership.id } });
+    });
+
+    await logActivity({
+      boardId: id,
+      userId: user.id,
+      action: 'MEMBER_REMOVED',
+      entityType: 'member',
+      entityId: user.id,
+      metadata: { removedUserId: user.id },
+    });
+
+    leftBoard = id;
+  } catch (error) {
+    return toActionError('leaveBoard', error, 'Failed to leave board');
+  }
+
+  // Outside the try: `redirect()` signals by throwing, and swallowing that throw
+  // in the catch is what would turn a success into `{ error }` — see deleteBoard.
+  revalidatePath('/boards');
+  redirect('/boards');
+
+  return { data: { id: leftBoard } };
 }
 
 export async function getBoardData(boardId: string): Promise<ActionResult<BoardWithDetails>> {
