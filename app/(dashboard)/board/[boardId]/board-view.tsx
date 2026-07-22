@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { DragDropContext, type DropResult } from '@hello-pangea/dnd';
+import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AddColumnButton } from '@/components/board/add-column-button';
@@ -21,9 +22,12 @@ interface BoardViewProps {
 }
 
 function BoardContent() {
-  const { state, dispatch, board, canEdit } = useBoardContext();
+  const { state, dispatch, board, canEdit, isOwner } = useBoardContext();
   const [selectedTask, setSelectedTask] = useState<TaskWithAssignee | null>(null);
   const [activityOpen, setActivityOpen] = useState(false);
+
+  // Drives the first-run coaching hint: a board with columns but no tasks yet.
+  const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
 
   useRealtime(board.id, dispatch);
 
@@ -81,6 +85,28 @@ function BoardContent() {
   return (
     <div className="flex h-[calc(100vh-56px)] flex-col overflow-hidden">
       <BoardHeader onOpenActivity={() => setActivityOpen(true)} />
+
+      {/* First-run coaching: only while the board has columns but no tasks, and only
+          for members who can act on it (viewers cannot add tasks). Stateless — it
+          disappears as soon as the first task exists. */}
+      {canEdit && state.columns.length > 0 && taskCount === 0 && (
+        <div className="bg-muted/40 border-b px-4 py-2.5 sm:px-6">
+          <p className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              Your board is ready — add your first task with{' '}
+              <span className="text-foreground font-medium">Add task</span> in any column
+              {isOwner && (
+                <>
+                  , or <span className="text-foreground font-medium">Share</span> it to collaborate
+                  in real time
+                </>
+              )}
+              .
+            </span>
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 overflow-x-auto">
         <DragDropContext onDragEnd={handleDragEnd}>
