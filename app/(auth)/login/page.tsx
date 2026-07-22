@@ -11,9 +11,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { sanitizeNext } from '@/lib/auth/redirects';
+import { AUTH_ERROR, ROUTES, sanitizeNext } from '@/lib/auth/redirects';
 import { createClient } from '@/lib/supabase/client';
 import type { Route } from 'next';
+
+// Maps the `?error` codes set by the OAuth callback to human-readable copy so a
+// failed sign-in explains itself instead of landing silently on the login screen.
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  [AUTH_ERROR.callbackFailed]: 'Sign-in could not be completed. Please try again.',
+};
 
 export default function LoginPage() {
   // useSearchParams must sit under a Suspense boundary; the auth layout provides none.
@@ -30,6 +36,10 @@ function LoginForm() {
   // Sanitised here so both the email/password push and the OAuth round-trip use a
   // single, open-redirect-safe destination.
   const next = sanitizeNext(searchParams.get('next'));
+  const errorCode = searchParams.get('error');
+  const errorMessage = errorCode
+    ? (AUTH_ERROR_MESSAGES[errorCode] ?? 'Something went wrong. Please try again.')
+    : null;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -56,7 +66,7 @@ function LoginForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `${window.location.origin}${ROUTES.authCallback}?next=${encodeURIComponent(next)}`,
       },
     });
     if (error) toast.error(error.message);
@@ -69,6 +79,15 @@ function LoginForm() {
         <CardDescription>Sign in to your account to continue</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {errorMessage && (
+          <div
+            role="alert"
+            className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm"
+          >
+            {errorMessage}
+          </div>
+        )}
+
         <Button variant="outline" className="w-full" onClick={handleOAuthLogin} type="button">
           <Github className="mr-2 h-4 w-4" />
           Continue with GitHub
@@ -97,7 +116,15 @@ function LoginForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password</Label>
+              <Link
+                href={ROUTES.forgotPassword}
+                className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-4"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <Input
               id="password"
               type="password"
@@ -115,7 +142,7 @@ function LoginForm() {
         <p className="text-muted-foreground text-center text-sm">
           Don&apos;t have an account?{' '}
           <Link
-            href="/register"
+            href={ROUTES.register}
             className="text-foreground font-medium underline underline-offset-4"
           >
             Sign up
