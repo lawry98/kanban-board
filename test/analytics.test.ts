@@ -9,6 +9,8 @@ import { prisma } from '@/lib/prisma';
 import { dailyActiveKey, signedUpKey } from '@/lib/analytics/events';
 import { trackEvent } from '@/lib/analytics/track';
 
+import type { AnalyticsEventInput } from '@/lib/analytics/events';
+
 const db = prisma as unknown as { analyticsEvent: { createMany: Mock } };
 
 beforeEach(() => {
@@ -87,6 +89,18 @@ describe('trackEvent', () => {
         properties: { invitationId: 'inv-1', role: 'EDITOR', secondsSinceLinkCreated: 42 },
       }),
     ).resolves.toBeUndefined();
+
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('never throws even when the event itself is malformed', async () => {
+    // Guards the whole body, not just the awaited write: if a refactor ever hoists
+    // the payload construction above the try block, property access on a null event
+    // would throw past the catch and fail a mutation the user completed.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(trackEvent(null as unknown as AnalyticsEventInput)).resolves.toBeUndefined();
 
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
