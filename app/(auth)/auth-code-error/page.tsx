@@ -36,9 +36,7 @@ function AuthCodeError() {
   const errorCode = searchParams.get('error_code');
   const error = searchParams.get('error');
   const message =
-    (errorCode && ERROR_MESSAGES[errorCode]) ||
-    (error && ERROR_MESSAGES[error]) ||
-    DEFAULT_MESSAGE;
+    (errorCode && ERROR_MESSAGES[errorCode]) || (error && ERROR_MESSAGES[error]) || DEFAULT_MESSAGE;
 
   return (
     <AuthMessageCard title="Link expired or invalid" description={message}>

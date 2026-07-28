@@ -267,11 +267,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           {/* Actions */}
           {canEdit && (
             <div className="flex justify-between pt-2">
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setConfirmDeleteOpen(true)}
-              >
+              <Button variant="destructive" size="sm" onClick={() => setConfirmDeleteOpen(true)}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </Button>
