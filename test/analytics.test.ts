@@ -4,18 +4,42 @@ import type { Mock } from 'vitest';
 vi.mock('@/lib/prisma', () => ({
   prisma: { analyticsEvent: { createMany: vi.fn() } },
 }));
+vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 
 import { prisma } from '@/lib/prisma';
 import { dailyActiveKey, signedUpKey } from '@/lib/analytics/events';
 import { trackEvent } from '@/lib/analytics/track';
+import { createClient } from '@/lib/supabase/server';
+import { trackSignedUp } from '@/app/actions/analytics-actions';
 
 import type { AnalyticsEventInput } from '@/lib/analytics/events';
 
 const db = prisma as unknown as { analyticsEvent: { createMany: Mock } };
 
+const mockedCreateClient = createClient as unknown as Mock;
+
+function signInAs(id = 'user-1'): void {
+  mockedCreateClient.mockResolvedValue({
+    auth: {
+      getUser: vi
+        .fn()
+        .mockResolvedValue({ data: { user: { id, email: 'me@example.com' } }, error: null }),
+    },
+  });
+}
+
+function signedOut(): void {
+  mockedCreateClient.mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+    },
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   db.analyticsEvent.createMany.mockResolvedValue({ count: 1 });
+  signInAs();
 });
 
 describe('dedupe keys', () => {
@@ -148,5 +172,58 @@ describe('trackEvent', () => {
       ],
       skipDuplicates: true,
     });
+  });
+});
+
+describe('trackSignedUp', () => {
+  it('rejects an unauthenticated caller without writing anything', async () => {
+    // /register is a public route, so this action is the one client entry point
+    // into analytics — it must never behave as an open write endpoint.
+    signedOut();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await trackSignedUp({ method: 'password', fromInvite: false });
+
+    expect(result).toEqual({ error: 'Unauthorized' });
+    expect(db.analyticsEvent.createMany).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('rejects a malformed payload', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await trackSignedUp({ method: 'carrier-pigeon', fromInvite: false });
+
+    expect(result.error).toBeDefined();
+    expect(db.analyticsEvent.createMany).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('records the signup with the authenticated user id and a dedupe key', async () => {
+    const result = await trackSignedUp({ method: 'password', fromInvite: true });
+
+    expect(result).toEqual({ data: true });
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          name: 'signed_up',
+          userId: 'user-1',
+          boardId: null,
+          properties: { method: 'password', fromInvite: true },
+          dedupeKey: 'signed_up:user-1',
+        },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  it('never trusts a user id supplied by the caller', async () => {
+    await trackSignedUp({ method: 'password', fromInvite: false, userId: 'attacker' });
+
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ userId: 'user-1' })],
+      }),
+    );
   });
 });
