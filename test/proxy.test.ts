@@ -16,17 +16,18 @@ const mockedUpdateSession = updateSession as unknown as Mock;
 
 const ORIGIN = 'https://app.example.com';
 
-function request(pathname: string, method: 'GET' | 'POST' = 'GET'): NextRequest {
+function request(pathname: string, method: 'GET' | 'HEAD' | 'POST' = 'GET'): NextRequest {
   return new NextRequest(new URL(pathname, ORIGIN), { method });
 }
 
+/** The exact response `updateSession` returned, so passthrough can be asserted by identity. */
+let passthrough: NextResponse;
+
 function stubSession(user: User | null): void {
-  mockedUpdateSession.mockResolvedValue({
-    // A plain `NextResponse.next()` is enough — `proxy` only ever reads its cookies
-    // via `.getAll()` when building a redirect, same shape `updateSession` returns.
-    response: NextResponse.next(),
-    user,
-  });
+  // A plain `NextResponse.next()` is enough — `proxy` only ever reads its cookies
+  // via `.getAll()` when building a redirect, same shape `updateSession` returns.
+  passthrough = NextResponse.next();
+  mockedUpdateSession.mockResolvedValue({ response: passthrough, user });
 }
 
 function location(res: Response): string {
@@ -70,8 +71,19 @@ describe('proxy', () => {
   it('does not redirect a signed-in POST to /register', async () => {
     stubSession(FAKE_USER);
     const res = await proxy(request('/register', 'POST'));
+    // Identity, not `not.toBe(307)`: this asserts the request passed through with
+    // the very response `updateSession` produced, which a wrong status could not
+    // satisfy by accident.
+    expect(res).toBe(passthrough);
     expect(res.headers.get('location')).toBeNull();
-    expect(res.status).not.toBe(307);
+  });
+
+  // HEAD is a document request too — a browser or crawler issuing HEAD for
+  // /register should get the same answer a GET would, not fall through to the page.
+  it('redirects a signed-in HEAD to /register to /boards, like GET', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/register', 'HEAD'));
+    expect(location(res)).toBe('/boards');
   });
 
   it('does not redirect a signed-out GET to a public route', async () => {

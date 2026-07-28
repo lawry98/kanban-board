@@ -48,6 +48,15 @@ export function isAuthRoute(pathname: string): boolean {
 }
 
 /**
+ * A navigation the browser would render, as opposed to a Server Action or form
+ * POST. HEAD is included because it is a document request whose headers should
+ * match what the equivalent GET would return.
+ */
+export function isDocumentRequest(method: string): boolean {
+  return method === 'GET' || method === 'HEAD';
+}
+
+/**
  * Carries the session cookies rotated by `updateSession` onto a redirect.
  * Returning a fresh `NextResponse.redirect()` without this drops the rotated
  * refresh token, killing the session or wedging the user in a redirect loop.
@@ -66,13 +75,13 @@ export async function proxy(request: NextRequest) {
     return redirectWithCookies(response, new URL(LOGIN_ROUTE, request.url));
   }
 
-  // Only bounce document navigations (GET) away from auth routes. A Server Action
+  // Only bounce document requests (GET/HEAD) away from auth routes. A Server Action
   // is a POST to the CURRENT URL, so if the browser is still on /register when the
   // action fires (e.g. right after signUp() sets a session cookie), an unconditional
   // bounce here 307s that POST to /boards and the action body — including the
   // signed_up analytics emission — never runs. Redirecting a POST to a GET target
   // is meaningless anyway, so gating on method loses nothing.
-  if (user && isAuthRoute(pathname) && request.method === 'GET') {
+  if (user && isAuthRoute(pathname) && isDocumentRequest(request.method)) {
     return redirectWithCookies(response, new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url));
   }
 
