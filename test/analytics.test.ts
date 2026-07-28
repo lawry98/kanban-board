@@ -8,7 +8,7 @@ vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 
 import { prisma } from '@/lib/prisma';
 import { dailyActiveKey, signedUpKey } from '@/lib/analytics/events';
-import { trackEvent } from '@/lib/analytics/track';
+import { clearDedupeMemoForTests, trackEvent } from '@/lib/analytics/track';
 import { createClient } from '@/lib/supabase/server';
 import { trackSignedUp } from '@/app/actions/analytics-actions';
 
@@ -40,6 +40,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.analyticsEvent.createMany.mockResolvedValue({ count: 1 });
   signInAs();
+  // The warm-instance memo is module state, which vitest does not reset between
+  // tests in the same file — only between files.
+  clearDedupeMemoForTests();
 });
 
 describe('dedupe keys', () => {
@@ -150,6 +153,102 @@ describe('trackEvent', () => {
       ],
       skipDuplicates: true,
     });
+  });
+
+  it('skips a repeat write for a dedupe key this instance already wrote', async () => {
+    // The dashboard layout re-renders on every revalidatePath response — ~20
+    // mutation sites, including every task move — so without this memo each of
+    // those costs an INSERT … ON CONFLICT DO NOTHING round-trip on a max:1 pool
+    // that can only ever be a no-op after the day's first write.
+    const event = {
+      name: 'daily_active',
+      userId: 'user-1',
+      boardId: null,
+      dedupeKey: 'daily_active:user-1:2026-07-28',
+    } as const;
+
+    await trackEvent(event);
+    await trackEvent(event);
+    await trackEvent(event);
+
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('still writes when the dedupe key differs (a new UTC day)', async () => {
+    await trackEvent({
+      name: 'daily_active',
+      userId: 'user-1',
+      boardId: null,
+      dedupeKey: 'daily_active:user-1:2026-07-28',
+    });
+    await trackEvent({
+      name: 'daily_active',
+      userId: 'user-1',
+      boardId: null,
+      dedupeKey: 'daily_active:user-1:2026-07-29',
+    });
+
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not memoize a key whose write failed, so the next attempt retries', async () => {
+    // Remembering a failed write would silently drop that user's daily_active for
+    // the rest of the instance's life. The memo is an optimisation, never a
+    // correctness mechanism — the unique index is.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.analyticsEvent.createMany.mockRejectedValueOnce(new Error('connection terminated'));
+
+    const event = {
+      name: 'daily_active',
+      userId: 'user-1',
+      boardId: null,
+      dedupeKey: 'daily_active:user-1:2026-07-28',
+    } as const;
+
+    await trackEvent(event);
+    await trackEvent(event);
+
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledTimes(2);
+    consoleError.mockRestore();
+  });
+
+  it('never memoizes an ordinary event, which has no dedupe key', async () => {
+    const event = {
+      name: 'invite_link_created',
+      userId: 'user-1',
+      boardId: 'board-1',
+      properties: { role: 'VIEWER', invitationId: 'inv-1' },
+    } as const;
+
+    await trackEvent(event);
+    await trackEvent(event);
+
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops any property key not on the event type allowlist', async () => {
+    // Defence in depth for the privacy contract. The closed union makes a stray
+    // key a compile error only for an object LITERAL; a widened variable would
+    // slip past it. This is the runtime backstop, so an email or a token cannot
+    // reach the events table even if the type system is subverted.
+    const smuggled = {
+      role: 'VIEWER',
+      invitationId: 'inv-1',
+      email: 'victim@example.com',
+      token: 'raw-invite-token',
+    } as unknown as { role: 'VIEWER'; invitationId: string };
+
+    await trackEvent({
+      name: 'invite_link_created',
+      userId: 'user-1',
+      boardId: 'board-1',
+      properties: smuggled,
+    });
+
+    const [{ data }] = db.analyticsEvent.createMany.mock.calls[0];
+    expect(data[0].properties).toEqual({ role: 'VIEWER', invitationId: 'inv-1' });
+    expect(JSON.stringify(data[0].properties)).not.toContain('victim@example.com');
+    expect(JSON.stringify(data[0].properties)).not.toContain('raw-invite-token');
   });
 
   it('stores a NULL dedupe key for ordinary, non-deduped events', async () => {

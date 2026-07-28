@@ -224,6 +224,8 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 `analytics_events` (`lib/analytics/track.ts`) is the one table that intentionally does **not** follow the Realtime posture above: it is not published to `supabase_realtime`, has no RLS policy, and needs no `GRANT SELECT`, because Prisma (the `postgres` owner, `BYPASSRLS`) is its only reader and writer — nothing subscribes to it. Two more deliberate choices, so a future edit doesn't "fix" them into consistency with the rest of the schema: `board_id` carries **no foreign key**, so a board deletion (which cascades `invitations`/`board_members`/`columns`/`tasks`) cannot erase a churned cohort's activation history; `user_id` is `ON DELETE SET NULL`, so an erasure request leaves the events intact but unattributable rather than deleting them.
 
+Two rules when adding an event: put its property keys in `EVENT_PROPERTY_KEYS` (`lib/analytics/events.ts`) — `trackEvent` picks against that allowlist at write time, so a key missing from it is silently dropped rather than persisted — and remember that `trackEvent` keeps a per-instance memo of `dedupe_key`s it has already written. The memo only skips provably redundant round-trips (the dashboard layout re-renders on every `revalidatePath` response, not just on navigation); the UNIQUE index on `dedupe_key` remains the actual correctness guarantee.
+
 ### Row Level Security — what it does and does NOT do
 
 **RLS does not protect application data.** Prisma connects as the `postgres` role, which owns the tables and has `BYPASSRLS`, so no policy is ever evaluated for app traffic. The RLS policies exist for **one** reason: to let Supabase Realtime authorize `postgres_changes`. Authorization for all reads and writes is the `require-access.ts` guards and nothing else. Do not add a policy and assume it defends anything at the query layer — it doesn't. (Making RLS a real second layer would require a dedicated non-superuser role and per-transaction JWT claims; that decision was deferred.)
@@ -234,7 +236,7 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 - `@supabase/ssr`, cookie-based. **Always `getUser()`** (server-verified) for authorization — never `getSession()`.
 - Route protection is **deny-by-default** in `proxy.ts`: only `PUBLIC_ROUTES` / `PUBLIC_ROUTE_PREFIXES` are open; everything else requires a session. Add a new dashboard route and it is protected automatically.
-- The signed-in bounce off `/login` and `/register` in `proxy.ts` only fires on `GET`: a Server Action POSTs to the current URL, and an unconditional bounce would silently 307 that POST away before its body ever ran.
+- The signed-in bounce off `/login` and `/register` in `proxy.ts` only fires on document requests (`GET`/`HEAD`, via `isDocumentRequest`): a Server Action POSTs to the current URL, and an unconditional bounce would silently 307 that POST away before its body ever ran. Deny-by-default above is unaffected — it stays method-agnostic, and `test/proxy.test.ts` pins both.
 - The OAuth callback (`app/auth/callback/route.ts`) only accepts same-origin relative `next` targets (open-redirect guard).
 - Env vars are validated in `lib/env.ts`; server-only secrets are never `NEXT_PUBLIC_`.
 

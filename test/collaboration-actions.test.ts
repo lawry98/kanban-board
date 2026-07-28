@@ -176,17 +176,22 @@ describe('acceptInvitation', () => {
 
     await acceptInvitation('tok_abc');
 
+    // Exact shape, not objectContaining: an extra key in `properties` would be a
+    // privacy regression, so the assertion has to be able to see one. Only the
+    // elapsed-seconds value is matched loosely, because it is time-dependent.
     expect(db.analyticsEvent.createMany).toHaveBeenCalledWith({
       data: [
-        expect.objectContaining({
+        {
           name: 'invite_accepted',
           userId: USER_ID,
           boardId: BOARD_A,
-          properties: expect.objectContaining({
+          dedupeKey: null,
+          properties: {
             invitationId: INVITATION_ID,
             role: 'VIEWER',
-          }),
-        }),
+            secondsSinceLinkCreated: expect.any(Number),
+          },
+        },
       ],
       skipDuplicates: true,
     });

@@ -21,9 +21,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
     select: { fullName: true, email: true, avatarUrl: true },
   });
 
-  // Rides the profile lookup that already runs here. The UTC-dated dedupe key
-  // collapses every dashboard navigation in a day into a single row, so this is
-  // at most one extra insert per user per day.
+  // The UTC-dated dedupe key collapses every dashboard render in a day into a
+  // single row. Note this layout is dynamic and re-renders on every
+  // `revalidatePath` response, not just on navigation, so it runs far more often
+  // than once a day per user — `trackEvent` keeps a warm-instance memo of keys it
+  // has already written so those extra renders cost no database round-trip at all.
   await trackEvent({
     name: 'daily_active',
     userId: user.id,

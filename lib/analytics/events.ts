@@ -16,6 +16,18 @@ export type SignedUpProperties = {
   fromInvite: boolean;
 };
 
+/**
+ * Not duplication of the `invitations` table, though it looks like it. An
+ * invitation row is `ON DELETE Cascade` from its board, so deleting a board erases
+ * every link ever created on it — while these events survive by design. That makes
+ * this the only durable record of link creation for a churned board, and it is why
+ * `funnel.sql` sources the instrumented-era link count from here rather than from
+ * `invitations`: both sides of the accept rate then survive board deletion and the
+ * ratio compares like with like.
+ *
+ * This is the same reasoning that EXCLUDES `board_created`/`task_created` from the
+ * taxonomy — those are derivable from rows that survive, these are not.
+ */
 export type InviteLinkCreatedProperties = {
   role: 'EDITOR' | 'VIEWER';
   invitationId: string;
@@ -84,6 +96,28 @@ export type AnalyticsEventInput =
  * from the `name` literals it names — the same drift this file exists to prevent.
  */
 export type AnalyticsEventName = AnalyticsEventInput['name'];
+
+/**
+ * The ONLY property keys that may ever be persisted, per event type. `trackEvent`
+ * picks against this at write time.
+ *
+ * The closed union above already makes a stray key a compile error — but only for
+ * an object *literal*. A widened variable (`const p: SignedUpProperties & { email: string }`)
+ * is structurally assignable and would smuggle the extra key straight through to
+ * the JSONB column. This list is the runtime backstop, so an email, a raw invite
+ * token, or a title cannot reach the events table even if the type system is
+ * subverted or someone later builds a payload dynamically.
+ *
+ * `satisfies` gives compile-time exhaustiveness: add an event to the union without
+ * adding its keys here and the build fails.
+ */
+export const EVENT_PROPERTY_KEYS = {
+  signed_up: ['method', 'fromInvite'],
+  invite_link_created: ['role', 'invitationId'],
+  invite_link_opened: ['invitationId', 'linkState', 'viewerState'],
+  invite_accepted: ['invitationId', 'role', 'secondsSinceLinkCreated'],
+  daily_active: [],
+} as const satisfies Record<AnalyticsEventName, readonly string[]>;
 
 /** Exactly one row per user, whichever emission path (register or OAuth callback) fires first. */
 export function signedUpKey(userId: string): string {
