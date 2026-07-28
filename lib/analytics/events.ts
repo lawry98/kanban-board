@@ -10,13 +10,6 @@
  * raw invite token, a board or task title, a pathname, an IP, or a user agent.
  */
 
-export type AnalyticsEventName =
-  | 'signed_up'
-  | 'invite_link_created'
-  | 'invite_link_opened'
-  | 'invite_accepted'
-  | 'daily_active';
-
 /** How the account was created. `fromInvite` is a boolean, never the path itself. */
 export type SignedUpProperties = {
   method: 'password' | 'github';
@@ -85,6 +78,12 @@ export type AnalyticsEventInput =
       dedupeKey: string;
       properties?: undefined;
     };
+
+/**
+ * Derived from the union above, not hand-duplicated, so this list can never drift
+ * from the `name` literals it names — the same drift this file exists to prevent.
+ */
+export type AnalyticsEventName = AnalyticsEventInput['name'];
 
 /** Exactly one row per user, whichever emission path (register or OAuth callback) fires first. */
 export function signedUpKey(userId: string): string {

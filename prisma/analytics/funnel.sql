@@ -7,12 +7,21 @@
 -- emitters. Keeping them here means they get reviewed and updated in the same
 -- commit as a schema change, instead of rotting in a browser tab.
 --
--- READ THIS FIRST — two honest caveats that apply throughout:
+-- READ THIS FIRST — three honest caveats that apply throughout:
 --   * `analytics_events` only covers the INSTRUMENTED ERA (from the day this
 --     shipped). `profiles`/`boards`/`tasks`/`invitations` cover all of history.
 --     Never divide an event count by an all-time table count.
 --   * Queries 1, 2 and the first half of 5 read only domain tables, so they
 --     return real answers immediately, before any event has been recorded.
+--   * Board deletion CASCADES `invitations`, `board_members`, `columns` and
+--     `tasks` (see schema.prisma) — those rows are gone once a board is
+--     deleted. `analytics_events` rows have no FK to `board_id` and survive
+--     the same deletion BY DESIGN: preserving the churned cohort's activation
+--     history is the whole reason this table exists instead of reusing
+--     `activity_logs`. That asymmetry is deliberate, but it means any query
+--     that puts a surviving event count on one side and a cascading domain
+--     count on the other under-reports the domain side — never treat the two
+--     as the same population.
 -- ============================================================================
 
 
@@ -45,6 +54,10 @@ ORDER BY 1;
 --    nested rate — its numerator is restricted to users who both created a board
 --    and created a task — so read that percentage, not created_a_task, as "of
 --    those [board creators], how many created a task".
+--    CAVEAT: board deletion cascades `boards`/`tasks`, so a user whose board was
+--    later deleted loses their `created_a_board`/`created_a_task` rows here even
+--    though their `profiles` row survives — this biases `pct_reached_board` and
+--    the nested rate downward. See the board-deletion caveat in the file header.
 -- ----------------------------------------------------------------------------
 WITH first_board AS (
   SELECT created_by AS user_id, min(created_at) AS at FROM boards GROUP BY 1
@@ -99,10 +112,18 @@ ORDER BY signup_events DESC;
 --    clients) inflate it. It is a DIRECTIONAL DENOMINATOR, NEVER A HEADCOUNT.
 --    Watch the trend, not the absolute rate. Making it exact would need a
 --    dedicated route handler or a client beacon — deliberately not built.
---    `links_created` is all-time; the two event columns are instrumented-era only.
+--    `links_created_all_time` counts `invitations`, which CASCADES on board
+--    deletion. `links_created_in_window` counts `invite_link_created` events
+--    instead, which survive board deletion just like `opened`/`accepted` do —
+--    that's the pair to use for any created-to-accepted rate. The two counts
+--    are labelled distinctly on purpose so a reader can't mistake the
+--    cascading all-time figure for the survives-deletion windowed one.
 -- ----------------------------------------------------------------------------
-WITH created AS (
-  SELECT count(*) AS n, min(created_at) AS first_link FROM invitations
+WITH created_all_time AS (
+  SELECT count(*) AS n FROM invitations
+),
+created_in_window AS (
+  SELECT count(*) AS n FROM analytics_events WHERE name = 'invite_link_created'
 ),
 opened AS (
   SELECT
@@ -120,15 +141,17 @@ accepted AS (
   FROM analytics_events WHERE name = 'invite_accepted'
 )
 SELECT
-  created.n                                                     AS links_created_all_time,
+  created_all_time.n                                            AS links_created_all_time,
+  created_in_window.n                                           AS links_created_in_window,
   opened.n                                                      AS link_opens_directional,
   opened.on_a_live_link,
   opened.on_a_dead_link,
   opened.by_logged_out_visitors,
   accepted.n                                                    AS accepts,
+  round(100.0 * accepted.n / nullif(created_in_window.n, 0), 1) AS pct_accept_per_link_created_in_window,
   round(100.0 * accepted.n / nullif(opened.on_a_live_link, 0), 1) AS pct_accept_per_live_link_open,
   round(accepted.median_seconds::numeric, 0)                    AS median_seconds_from_link_to_accept
-FROM created, opened, accepted;
+FROM created_all_time, created_in_window, opened, accepted;
 
 
 -- ----------------------------------------------------------------------------
@@ -151,15 +174,31 @@ FROM (SELECT board_id, count(*) AS members FROM board_members GROUP BY 1) m;
 -- ----------------------------------------------------------------------------
 WITH window_start AS (
   SELECT min(occurred_at) AS since FROM analytics_events WHERE name = 'invite_accepted'
+),
+counts AS (
+  SELECT
+    (SELECT count(*) FROM analytics_events WHERE name = 'invite_accepted')  AS joined_via_link,
+    (SELECT count(*) FROM board_members bm, window_start
+       WHERE bm.role <> 'OWNER' AND bm.joined_at >= window_start.since)     AS non_owner_memberships_in_window
 )
 SELECT
-  (SELECT since FROM window_start) AS instrumented_since,
-  (SELECT count(*) FROM analytics_events WHERE name = 'invite_accepted') AS joined_via_link,
-  (SELECT count(*) FROM board_members bm, window_start
-     WHERE bm.role <> 'OWNER' AND bm.joined_at >= window_start.since)    AS non_owner_memberships_in_window;
--- `non_owner_memberships_in_window - joined_via_link` approximates owner
--- add-by-email. It is an approximation, not an identity: a member who left and
--- rejoined counts once in the membership table but twice in the events.
+  (SELECT since FROM window_start)                                          AS instrumented_since,
+  joined_via_link,
+  non_owner_memberships_in_window,
+  -- Floored at 0 — see the trailing comment for why the raw subtraction can
+  -- go negative and why this is a directional approximation, not an identity.
+  greatest(0, non_owner_memberships_in_window - joined_via_link)            AS owner_added_by_email_approx
+FROM counts;
+-- `owner_added_by_email_approx` approximates owner add-by-email. It is an
+-- approximation, not an identity, for two independent reasons:
+--   1. A member who left and rejoined counts once in `board_members` (current
+--      membership only) but twice in the events (once per accept).
+--   2. Board deletion CASCADES `board_members` but not `analytics_events` (see
+--      the file header): a user who accepted an invite to a board that was
+--      later deleted still has their `invite_accepted` event, but their
+--      membership row is gone — which alone can push the raw subtraction
+--      negative even with zero rejoins. `greatest(0, ...)` floors that case
+--      rather than reporting a nonsensical negative headcount.
 
 
 -- ----------------------------------------------------------------------------

@@ -73,7 +73,9 @@ function RegisterForm() {
       // Confirmations disabled (or the address was auto-confirmed): the user has a
       // live session now, so send them on to their destination.
       // Best-effort telemetry — a boolean, never the destination path, and never
-      // allowed to block or fail a signup the user actually completed.
+      // allowed to FAIL a signup the user actually completed. It IS awaited
+      // deliberately: router.push() below would otherwise be able to abort this
+      // in-flight request before the write lands.
       await trackSignedUp({ method: 'password', fromInvite: next.startsWith('/join/') }).catch(
         () => {},
       );
