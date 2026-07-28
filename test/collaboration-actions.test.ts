@@ -12,6 +12,7 @@ vi.mock('@/lib/prisma', () => ({
       delete: vi.fn(),
     },
     activityLog: { create: vi.fn() },
+    analyticsEvent: { createMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -44,6 +45,7 @@ const db = prisma as unknown as {
   invitation: { findUnique: Mock; findMany: Mock; create: Mock; update: Mock };
   boardMember: { findFirst: Mock; create: Mock; update: Mock; count: Mock; delete: Mock };
   activityLog: { create: Mock };
+  analyticsEvent: { createMany: Mock };
   $transaction: Mock;
 };
 const mockedCreateClient = createClient as unknown as Mock;
@@ -91,6 +93,7 @@ beforeEach(() => {
   // Default: run a $transaction callback against the same mocked client as `tx`.
   db.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
   db.activityLog.create.mockResolvedValue({});
+  db.analyticsEvent.createMany.mockResolvedValue({ count: 1 });
 });
 
 describe('acceptInvitation', () => {
@@ -163,6 +166,72 @@ describe('acceptInvitation', () => {
 
     expect(result).toEqual({ data: { boardId: BOARD_A } });
   });
+
+  it('records invite_accepted only on the real-join branch', async () => {
+    db.invitation.findUnique.mockResolvedValue(
+      makeInvitation({ role: 'VIEWER', createdAt: new Date(Date.now() - 120_000) }),
+    );
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+
+    await acceptInvitation('tok_abc');
+
+    // Exact shape, not objectContaining: an extra key in `properties` would be a
+    // privacy regression, so the assertion has to be able to see one. Only the
+    // elapsed-seconds value is matched loosely, because it is time-dependent.
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          name: 'invite_accepted',
+          userId: USER_ID,
+          boardId: BOARD_A,
+          dedupeKey: null,
+          properties: {
+            invitationId: INVITATION_ID,
+            role: 'VIEWER',
+            secondsSinceLinkCreated: expect.any(Number),
+          },
+        },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  it('records NO invite_accepted when the user is already a member', async () => {
+    // Re-clicking a link you already accepted must not inflate the accept count.
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue({ id: 'member-existing' });
+
+    await acceptInvitation('tok_abc');
+
+    expect(db.analyticsEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('records NO invite_accepted when the create loses a P2002 race', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'test' }),
+    );
+
+    await acceptInvitation('tok_abc');
+
+    expect(db.analyticsEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('records seconds-since-link-created as a non-negative number', async () => {
+    db.invitation.findUnique.mockResolvedValue(
+      makeInvitation({ createdAt: new Date(Date.now() - 90_000) }),
+    );
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+
+    await acceptInvitation('tok_abc');
+
+    const [{ data }] = db.analyticsEvent.createMany.mock.calls[0];
+    expect(data[0].properties.secondsSinceLinkCreated).toBeGreaterThanOrEqual(89);
+    expect(data[0].properties.secondsSinceLinkCreated).toBeLessThanOrEqual(95);
+  });
 });
 
 describe('revokeInvitation', () => {
@@ -217,6 +286,30 @@ describe('createInvitation', () => {
 
     expect(result).toEqual({ error: 'Forbidden' });
     expect(db.invitation.create).not.toHaveBeenCalled();
+  });
+
+  it('records invite_link_created with the role and invitation id, never the token', async () => {
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+    db.invitation.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        id: INVITATION_ID,
+        ...data,
+      }),
+    );
+
+    await createInvitation(BOARD_A, { role: 'EDITOR' });
+
+    const [{ data }] = db.analyticsEvent.createMany.mock.calls[0];
+    expect(data[0]).toEqual(
+      expect.objectContaining({
+        name: 'invite_link_created',
+        userId: USER_ID,
+        boardId: BOARD_A,
+        properties: { role: 'EDITOR', invitationId: INVITATION_ID },
+      }),
+    );
+    // Ids and enums only — no token, no email.
+    expect(JSON.stringify(data[0].properties)).not.toContain('token');
   });
 });
 

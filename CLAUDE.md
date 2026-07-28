@@ -41,7 +41,7 @@ app/                              # Next.js App Router
 ├── (dashboard)/                  # Protected route group
 │   ├── board/[boardId]/          # Individual board view
 │   └── boards/                   # Board listing
-├── actions/                      # Server Actions (auth, board, column, task)
+├── actions/                      # Server Actions (auth, board, column, task, invitation, analytics)
 ├── auth/callback/route.ts        # OAuth code-exchange callback
 ├── layout.tsx · page.tsx         # Root layout + landing page
 components/
@@ -58,12 +58,14 @@ lib/
 ├── prisma.ts                     # Singleton Prisma client (PrismaPg adapter, SSL + pool config)
 ├── env.ts                        # Zod-validated environment variables
 ├── auth/require-access.ts        # Authorization guards + ActionResult + toActionError + logActivity
+├── analytics/events.ts           # Closed AnalyticsEventInput union + dedupe-key builders (no I/O)
+├── analytics/track.ts            # Server-only best-effort event emitter (never throws)
 ├── supabase/{client,server,middleware}.ts   # Auth + Realtime clients only
-├── validations/{board,column,task}.ts       # Zod schemas
+├── validations/{board,column,task,analytics}.ts   # Zod schemas
 ├── utils.ts · constants.ts
 proxy.ts                          # Next 16 middleware (renamed from middleware.ts): route protection
 types/{board,index}.ts            # Shared types (Prisma-derived — see Types)
-prisma/{schema.prisma,migrations/}
+prisma/{schema.prisma,migrations/,analytics/funnel.sql}   # funnel.sql is a hand-run read layer, not a migration
 test/setup.ts                     # Vitest setup (jest-dom)
 ```
 
@@ -214,9 +216,15 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 `hooks/use-realtime.ts` subscribes per board and, on any `postgres_changes` event, debounces (300 ms) and re-fetches the whole board via `getBoardData`, dispatching `SYNC_STATE`. Syncs are sequence-numbered (a stale in-flight fetch cannot clobber newer state) and re-run on `SUBSCRIBED` (reconnect catch-up), tab refocus, and `online`. Deletes require `REPLICA IDENTITY FULL` (set in the migration) or their `board_id` filter never matches.
 
-**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the *subscriber's* role (`authenticated`) under RLS. Prisma creates tables as the `postgres` owner and never grants DML to the Supabase roles, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grant is in `20260722000000_realtime_select_grants`; RLS still gates which rows are visible, so it widens nothing. When you publish a new table to `supabase_realtime`, add its `GRANT SELECT` too.
+**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the _subscriber's_ role (`authenticated`) under RLS. Prisma creates tables as the `postgres` owner and never grants DML to the Supabase roles, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grant is in `20260722000000_realtime_select_grants`; RLS still gates which rows are visible, so it widens nothing. When you publish a new table to `supabase_realtime`, add its `GRANT SELECT` too.
 
 > Known limitation: a client's **own** writes echo back and trigger a resync (no origin filtering yet). The better design — server-emitted broadcast carrying an origin id, applied as a delta — is noted in the hook and deliberately out of scope for now.
+
+### `analytics_events` — deliberately NOT published
+
+`analytics_events` (`lib/analytics/track.ts`) is the one table that intentionally does **not** follow the Realtime posture above: it is not published to `supabase_realtime`, has no RLS policy, and needs no `GRANT SELECT`, because Prisma (the `postgres` owner, `BYPASSRLS`) is its only reader and writer — nothing subscribes to it. Two more deliberate choices, so a future edit doesn't "fix" them into consistency with the rest of the schema: `board_id` carries **no foreign key**, so a board deletion (which cascades `invitations`/`board_members`/`columns`/`tasks`) cannot erase a churned cohort's activation history; `user_id` is `ON DELETE SET NULL`, so an erasure request leaves the events intact but unattributable rather than deleting them.
+
+Two rules when adding an event: put its property keys in `EVENT_PROPERTY_KEYS` (`lib/analytics/events.ts`) — `trackEvent` picks against that allowlist at write time, so a key missing from it is silently dropped rather than persisted — and remember that `trackEvent` keeps a per-instance memo of `dedupe_key`s it has already written. The memo only skips provably redundant round-trips (the dashboard layout re-renders on every `revalidatePath` response, not just on navigation); the UNIQUE index on `dedupe_key` remains the actual correctness guarantee.
 
 ### Row Level Security — what it does and does NOT do
 
@@ -228,6 +236,7 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 - `@supabase/ssr`, cookie-based. **Always `getUser()`** (server-verified) for authorization — never `getSession()`.
 - Route protection is **deny-by-default** in `proxy.ts`: only `PUBLIC_ROUTES` / `PUBLIC_ROUTE_PREFIXES` are open; everything else requires a session. Add a new dashboard route and it is protected automatically.
+- The signed-in bounce off `/login` and `/register` in `proxy.ts` only fires on document requests (`GET`/`HEAD`, via `isDocumentRequest`): a Server Action POSTs to the current URL, and an unconditional bounce would silently 307 that POST away before its body ever ran. Deny-by-default above is unaffected — it stays method-agnostic, and `test/proxy.test.ts` pins both.
 - The OAuth callback (`app/auth/callback/route.ts`) only accepts same-origin relative `next` targets (open-redirect guard).
 - Env vars are validated in `lib/env.ts`; server-only secrets are never `NEXT_PUBLIC_`.
 
@@ -314,7 +323,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **No seed script** — `pnpm prisma db seed` is unconfigured; a fresh DB comes up empty.
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — only `boardReducer` is covered so far.
+- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, and `proxy`'s route-protection are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a real authorization layer** — see the RLS section for what promoting it would require.
 - CI runs lint without `--max-warnings=0`; turn that on once any remaining warnings are cleared.

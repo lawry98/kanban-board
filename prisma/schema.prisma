@@ -63,12 +63,13 @@ model Profile {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  boards        Board[]
-  boardMembers  BoardMember[]
-  tasksCreated  Task[]        @relation("TaskCreatedBy")
-  tasksAssigned Task[]        @relation("TaskAssignee")
-  activityLogs  ActivityLog[]
-  invitations   Invitation[]
+  boards          Board[]
+  boardMembers    BoardMember[]
+  tasksCreated    Task[]           @relation("TaskCreatedBy")
+  tasksAssigned   Task[]           @relation("TaskAssignee")
+  activityLogs    ActivityLog[]
+  invitations     Invitation[]
+  analyticsEvents AnalyticsEvent[]
 
   @@map("profiles")
 }
@@ -134,6 +135,34 @@ model Invitation {
 
   @@index([boardId])
   @@map("invitations")
+}
+
+/// First-party product analytics. Deliberately NOT `activity_logs`: that table's
+/// board_id is NOT NULL and cascades on board delete, which would erase the
+/// churned cohort's activation history — the exact population an activation
+/// metric exists to study. See docs/superpowers/specs/2026-07-28-product-analytics-design.md §3.3.
+model AnalyticsEvent {
+  id         String   @id @default(uuid())
+  /// Free-form by design — NOT a Postgres enum, so adding an event type never
+  /// needs a migration. Type safety lives in lib/analytics/events.ts.
+  name       String
+  /// Nullable + SetNull: an erasure request deletes the profile and leaves the
+  /// events intact but unattributable.
+  userId     String?  @map("user_id")
+  /// Deliberately a plain column with NO foreign key. An FK would cascade on
+  /// board deletion and erase the churned cohort's activation history.
+  boardId    String?  @map("board_id")
+  properties Json     @default("{}")
+  /// Idempotency handle for once-per-period events. NULL for ordinary events;
+  /// Postgres treats NULLs as distinct in a unique index, so any number coexist.
+  dedupeKey  String?  @unique @map("dedupe_key")
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  profile Profile? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([name, occurredAt])
+  @@index([userId, occurredAt])
+  @@map("analytics_events")
 }
 
 model Column {

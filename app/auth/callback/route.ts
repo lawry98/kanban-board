@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server';
 
+import { trackEvent } from '@/lib/analytics/track';
+import { signedUpKey } from '@/lib/analytics/events';
 import { createClient } from '@/lib/supabase/server';
 import { AUTH_ERROR, loginWithError, ROUTES, sanitizeNext } from '@/lib/auth/redirects';
 
 import type { NextRequest } from 'next/server';
+
+/**
+ * How recently `auth.users.created_at` must be for this callback to count as a
+ * signup rather than a returning sign-in. Read from the exchange result that is
+ * already in hand, so this costs no extra query.
+ */
+const SIGNUP_FRESHNESS_MS = 60_000;
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -16,9 +25,27 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
+      const user = data.user;
+      if (user && Date.now() - new Date(user.created_at).getTime() < SIGNUP_FRESHNESS_MS) {
+        // GitHub users never touch the register page's session branch, so this is
+        // their only signup emission site. The freshness window keeps returning
+        // sign-ins (and recovery-link exchanges) out of the funnel top, and the
+        // shared `signed_up:<userId>` dedupe key makes a race with the register
+        // page's emission a no-op.
+        await trackEvent({
+          name: 'signed_up',
+          userId: user.id,
+          boardId: null,
+          dedupeKey: signedUpKey(user.id),
+          properties: {
+            method: user.app_metadata?.provider === 'github' ? 'github' : 'password',
+            fromInvite: next.startsWith('/join/'),
+          },
+        });
+      }
       return NextResponse.redirect(new URL(next, origin));
     }
 

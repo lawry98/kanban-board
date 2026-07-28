@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 
 import { prisma } from '@/lib/prisma';
+import { trackEvent } from '@/lib/analytics/track';
 import {
   OWNER_ROLES,
   PublicError,
@@ -51,6 +52,14 @@ export async function createInvitation(
         token: randomBytes(TOKEN_BYTES).toString('base64url'),
         invitedBy: user.id,
       },
+    });
+
+    // Ids and enum values only — the token is never recorded.
+    await trackEvent({
+      name: 'invite_link_created',
+      userId: user.id,
+      boardId: id,
+      properties: { role, invitationId: invitation.id },
     });
 
     return { data: invitation };
@@ -142,6 +151,22 @@ export async function acceptInvitation(token: unknown): Promise<ActionResult<{ b
         entityType: 'member',
         entityId: member.id,
         metadata: { email: user.email ?? '', role: invitation.role },
+      });
+
+      // Only here: not on the already-a-member early return above, and not in the
+      // P2002 catch below. Either of those would inflate the accept count.
+      await trackEvent({
+        name: 'invite_accepted',
+        userId: user.id,
+        boardId: invitation.boardId,
+        properties: {
+          invitationId: invitation.id,
+          role: invitation.role,
+          secondsSinceLinkCreated: Math.max(
+            0,
+            Math.round((Date.now() - invitation.createdAt.getTime()) / 1000),
+          ),
+        },
       });
     } catch (error) {
       // Lost a race with another accept (or the add-by-email flow): the unique

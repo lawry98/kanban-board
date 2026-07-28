@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { trackEvent } from '@/lib/analytics/track';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
 
@@ -41,7 +42,32 @@ export default async function JoinPage({ params }: JoinPageProps) {
     },
   });
 
-  if (!invitation || !isActive(invitation)) {
+  // Resolved before the validity check because the event needs `viewerState` on
+  // both branches — a logged-out visitor hitting a dead link is still a signal.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const linkActive = invitation !== null && isActive(invitation);
+
+  // The only pre-auth event in the app, and the denominator for invite conversion.
+  // ACCEPTED TRADEOFF: this fires during a server render, so RSC prefetches and
+  // link-preview bots (Slack, iMessage, mail clients) inflate it. Treat it as a
+  // directional denominator, never a headcount — funnel.sql repeats this caveat
+  // at the point of use. The token itself is never recorded.
+  await trackEvent({
+    name: 'invite_link_opened',
+    userId: user?.id ?? null,
+    boardId: invitation?.boardId ?? null,
+    properties: {
+      invitationId: invitation?.id ?? null,
+      linkState: linkActive ? 'active' : 'invalid',
+      viewerState: user ? 'authenticated' : 'anonymous',
+    },
+  });
+
+  if (!linkActive) {
     return (
       <JoinShell>
         <Card>
@@ -60,11 +86,6 @@ export default async function JoinPage({ params }: JoinPageProps) {
       </JoinShell>
     );
   }
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   const boardTitle = invitation.board.title;
   const roleLabel = ROLE_LABELS[invitation.role] ?? 'a member';
