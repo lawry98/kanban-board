@@ -66,7 +66,13 @@ export async function proxy(request: NextRequest) {
     return redirectWithCookies(response, new URL(LOGIN_ROUTE, request.url));
   }
 
-  if (user && isAuthRoute(pathname)) {
+  // Only bounce document navigations (GET) away from auth routes. A Server Action
+  // is a POST to the CURRENT URL, so if the browser is still on /register when the
+  // action fires (e.g. right after signUp() sets a session cookie), an unconditional
+  // bounce here 307s that POST to /boards and the action body — including the
+  // signed_up analytics emission — never runs. Redirecting a POST to a GET target
+  // is meaningless anyway, so gating on method loses nothing.
+  if (user && isAuthRoute(pathname) && request.method === 'GET') {
     return redirectWithCookies(response, new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url));
   }
 
