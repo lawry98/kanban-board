@@ -1,6 +1,20 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
+vi.mock('@/lib/prisma', () => ({
+  prisma: { analyticsEvent: { createMany: vi.fn() } },
+}));
+
+import { prisma } from '@/lib/prisma';
 import { dailyActiveKey, signedUpKey } from '@/lib/analytics/events';
+import { trackEvent } from '@/lib/analytics/track';
+
+const db = prisma as unknown as { analyticsEvent: { createMany: Mock } };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  db.analyticsEvent.createMany.mockResolvedValue({ count: 1 });
+});
 
 describe('dedupe keys', () => {
   it('builds a stable per-user signed_up key', () => {
@@ -53,5 +67,72 @@ describe('dedupe keys', () => {
     const a = dailyActiveKey('user-1', new Date('2026-07-28T09:00:00.000Z'));
     const b = dailyActiveKey('user-1', new Date('2026-07-29T09:00:00.000Z'));
     expect(a).not.toBe(b);
+  });
+});
+
+describe('trackEvent', () => {
+  it('never throws when the database write rejects', async () => {
+    // The single most important guarantee in this feature: analytics must never
+    // fail a mutation the user actually completed. A throw here would make the
+    // calling action return { error } and the client would revert a change that
+    // really did persist.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.analyticsEvent.createMany.mockRejectedValue(new Error('connection terminated'));
+
+    await expect(
+      trackEvent({
+        name: 'invite_accepted',
+        userId: 'user-1',
+        boardId: 'board-1',
+        properties: { invitationId: 'inv-1', role: 'EDITOR', secondsSinceLinkCreated: 42 },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('writes one row with skipDuplicates so a duplicate dedupe key is a no-op', async () => {
+    await trackEvent({
+      name: 'daily_active',
+      userId: 'user-1',
+      boardId: null,
+      dedupeKey: 'daily_active:user-1:2026-07-28',
+    });
+
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          name: 'daily_active',
+          userId: 'user-1',
+          boardId: null,
+          properties: {},
+          dedupeKey: 'daily_active:user-1:2026-07-28',
+        },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  it('stores a NULL dedupe key for ordinary, non-deduped events', async () => {
+    await trackEvent({
+      name: 'invite_link_created',
+      userId: 'user-1',
+      boardId: 'board-1',
+      properties: { role: 'VIEWER', invitationId: 'inv-1' },
+    });
+
+    expect(db.analyticsEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          name: 'invite_link_created',
+          userId: 'user-1',
+          boardId: 'board-1',
+          properties: { role: 'VIEWER', invitationId: 'inv-1' },
+          dedupeKey: null,
+        },
+      ],
+      skipDuplicates: true,
+    });
   });
 });
