@@ -137,4 +137,34 @@ describe('auth/callback GET', () => {
 
     expect(mockedTrackEvent).not.toHaveBeenCalled();
   });
+
+  it('fails closed on an unparseable created_at — no event, no throw', async () => {
+    // `new Date('not-a-date').getTime()` is NaN, and `Date.now() - NaN < 60_000`
+    // is false, so the freshness gate skips the emission rather than misfiring.
+    // The redirect must still happen: a malformed timestamp from the auth server
+    // is not a reason to fail a sign-in that actually succeeded.
+    exchangeReturns(null, {
+      user: {
+        id: 'user-4',
+        created_at: 'not-a-date',
+        app_metadata: { provider: 'github' },
+      },
+    });
+
+    const res = await GET(request('?code=abc&next=%2Fboards'));
+
+    expect(mockedTrackEvent).not.toHaveBeenCalled();
+    expect(new URL(res.headers.get('location') as string).pathname).toBe('/boards');
+  });
+
+  it('fails closed when created_at is missing entirely', async () => {
+    exchangeReturns(null, {
+      user: { id: 'user-5', app_metadata: { provider: 'github' } } as unknown as MockUser,
+    });
+
+    const res = await GET(request('?code=abc&next=%2Fboards'));
+
+    expect(mockedTrackEvent).not.toHaveBeenCalled();
+    expect(new URL(res.headers.get('location') as string).pathname).toBe('/boards');
+  });
 });
