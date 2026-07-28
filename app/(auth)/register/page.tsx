@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Github } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { trackSignedUp } from '@/app/actions/analytics-actions';
 import { AuthMessageCard } from '@/components/auth/auth-message-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,6 +72,11 @@ function RegisterForm() {
     if (data.session) {
       // Confirmations disabled (or the address was auto-confirmed): the user has a
       // live session now, so send them on to their destination.
+      // Best-effort telemetry — a boolean, never the destination path, and never
+      // allowed to block or fail a signup the user actually completed.
+      await trackSignedUp({ method: 'password', fromInvite: next.startsWith('/join/') }).catch(
+        () => {},
+      );
       router.push(next as Route);
       router.refresh();
       return;
