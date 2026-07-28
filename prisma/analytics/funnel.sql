@@ -23,8 +23,8 @@
 --    trigger on auth.users). Works over all history.
 -- ----------------------------------------------------------------------------
 SELECT
-  date_trunc('week', created_at)::date AS week,
-  count(*)                             AS signups
+  date_trunc('week', created_at AT TIME ZONE 'UTC')::date AS week,
+  count(*)                                                AS signups
 FROM profiles
 GROUP BY 1
 ORDER BY 1;
@@ -38,6 +38,13 @@ ORDER BY 1;
 --    CAVEAT: if email confirmations are ever turned on, unconfirmed users still
 --    appear here as a profiles row with no board and no task. That is honest,
 --    but it moves the top of the funnel.
+--    CAVEAT: `created_a_task` counts "signed up AND created a task on ANY board",
+--    including a board someone else owns (an EDITOR/VIEWER collaborator counts
+--    here even if they never created their own board). It is NOT nested under
+--    `created_a_board`. `pct_of_board_creators_who_made_a_task` IS the true
+--    nested rate — its numerator is restricted to users who both created a board
+--    and created a task — so read that percentage, not created_a_task, as "of
+--    those [board creators], how many created a task".
 -- ----------------------------------------------------------------------------
 WITH first_board AS (
   SELECT created_by AS user_id, min(created_at) AS at FROM boards GROUP BY 1
@@ -50,7 +57,8 @@ SELECT
   count(b.at)                                                          AS created_a_board,
   count(t.at)                                                          AS created_a_task,
   round(100.0 * count(b.at) / nullif(count(*), 0), 1)                  AS pct_reached_board,
-  round(100.0 * count(t.at) / nullif(count(b.at), 0), 1)               AS pct_of_board_creators_who_made_a_task,
+  round(100.0 * count(*) FILTER (WHERE b.at IS NOT NULL AND t.at IS NOT NULL)
+        / nullif(count(b.at), 0), 1)                                  AS pct_of_board_creators_who_made_a_task,
   round(percentile_cont(0.5) WITHIN GROUP (
     ORDER BY extract(epoch FROM b.at - p.created_at) / 60)::numeric, 1) AS median_minutes_to_first_board,
   round(percentile_cont(0.5) WITHIN GROUP (
@@ -165,8 +173,8 @@ SELECT
 -- ----------------------------------------------------------------------------
 WITH cohort AS (
   SELECT id AS user_id,
-         date_trunc('week', created_at)::date AS signup_week,
-         (created_at AT TIME ZONE 'UTC')::date AS signup_day
+         date_trunc('week', created_at AT TIME ZONE 'UTC')::date AS signup_week,
+         (created_at AT TIME ZONE 'UTC')::date                  AS signup_day
   FROM profiles
 ),
 active AS (
