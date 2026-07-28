@@ -189,6 +189,21 @@ describe('trackSignedUp', () => {
     consoleError.mockRestore();
   });
 
+  it('checks auth before it parses — a signed-out caller never reaches validation', async () => {
+    // The ordering is the security property: /register is a public route, so this
+    // action is reachable unauthenticated. A malformed payload from a signed-out
+    // caller must still report Unauthorized — a Zod message here would mean the
+    // parse ran first, leaking which fields the endpoint accepts to an anonymous caller.
+    signedOut();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await trackSignedUp({ method: 'carrier-pigeon', fromInvite: 'nope' });
+
+    expect(result).toEqual({ error: 'Unauthorized' });
+    expect(db.analyticsEvent.createMany).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it('rejects a malformed payload', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
