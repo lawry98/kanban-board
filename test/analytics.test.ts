@@ -27,7 +27,11 @@ describe('dedupe keys', () => {
     });
 
     afterAll(() => {
-      process.env.TZ = originalTz;
+      if (originalTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = originalTz;
+      }
     });
 
     it('uses the UTC calendar date, not the server-local one', () => {
