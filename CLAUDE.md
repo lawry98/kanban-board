@@ -56,6 +56,7 @@ hooks/
 └── use-optimistic-update.ts      # Optimistic-update helper (exported; not yet wired in — see Known Gaps)
 lib/
 ├── prisma.ts                     # Singleton Prisma client (PrismaPg adapter, SSL + pool config)
+├── db-tls.ts                     # DB TLS policy + bundled Supabase Root 2021 CA
 ├── env.ts                        # Zod-validated environment variables
 ├── auth/require-access.ts        # Authorization guards + ActionResult + toActionError + logActivity
 ├── analytics/events.ts           # Closed AnalyticsEventInput union + dedupe-key builders (no I/O)
@@ -201,7 +202,7 @@ export async function createTask(input: unknown): Promise<ActionResult<Task>> {
 
 ### Prisma client
 
-`lib/prisma.ts` is a singleton using the `PrismaPg` driver adapter with explicit TLS verification and serverless pool sizing (`max: 1`). Import `prisma` from `@/lib/prisma` everywhere — never `new PrismaClient()`. Server contexts only; never import it into a `'use client'` component.
+`lib/prisma.ts` is a singleton using the `PrismaPg` driver adapter with explicit TLS verification and serverless pool sizing (`max: 1`). Supabase signs its pooler and direct-host certificates with a **private** root (Supabase Root 2021 CA) that is not in Node's trust store, so `lib/db-tls.ts` bundles that CA and pins it — without it every query fails with `self-signed certificate in certificate chain`. Never "fix" that error with `rejectUnauthorized: false`. Import `prisma` from `@/lib/prisma` everywhere — never `new PrismaClient()`. Server contexts only; never import it into a `'use client'` component.
 
 The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `prisma.config.ts` (`DIRECT_URL`) — the `schema.prisma` `datasource` block intentionally declares only `provider`.
 
@@ -278,7 +279,7 @@ DIRECT_URL=                # Supabase direct connection, port 5432 — migration
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_APP_URL=
-# SUPABASE_CA_CERT=        # optional: PEM CA for the legacy direct-connection cert
+# SUPABASE_CA_CERT=        # optional: PEM CA replacing the bundled Supabase root (lib/db-tls.ts)
 ```
 
 Client vars must be `NEXT_PUBLIC_`; server secrets must not be. `.env.local` is gitignored; `.env.example` is committed.
@@ -323,7 +324,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **No seed script** — `pnpm prisma db seed` is unconfigured; a fresh DB comes up empty.
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, and `proxy`'s route-protection are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, and the DB TLS policy are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a real authorization layer** — see the RLS section for what promoting it would require.
 - CI runs lint without `--max-warnings=0`; turn that on once any remaining warnings are cleared.

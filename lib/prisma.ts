@@ -1,32 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
+import { resolveSsl } from '@/lib/db-tls';
 import { serverEnv } from '@/lib/env';
 
-import type { ConnectionOptions } from 'node:tls';
-
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-
-/**
- * TLS policy for the database connection.
- *
- * Certificate verification stays ON. Supabase's pooler and direct database
- * hostnames present certificates chained to a public root, so the default
- * system trust store validates them without any extra configuration.
- * `SUPABASE_CA_CERT` exists only for the legacy endpoint, whose CA Supabase
- * publishes as a downloadable bundle. Disabling verification would leave the
- * DB credential and every row exposed to an on-path attacker.
- *
- * `?sslmode=disable` remains supported for a local Postgres/Supabase instance
- * that serves no TLS at all.
- */
-function resolveSsl(
-  connectionString: string,
-  caCert: string | undefined,
-): ConnectionOptions | false {
-  if (connectionString.includes('sslmode=disable')) return false;
-  return caCert ? { rejectUnauthorized: true, ca: caCert } : { rejectUnauthorized: true };
-}
 
 function createPrismaClient(): PrismaClient {
   const { DATABASE_URL, SUPABASE_CA_CERT } = serverEnv();
