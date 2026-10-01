@@ -25,8 +25,8 @@ const publicEnvSchema = z.object({
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1, { error: 'DATABASE_URL is required' }),
   DIRECT_URL: z.string().min(1).optional(),
-  // PEM-encoded CA bundle, only needed for the legacy Supabase endpoint whose
-  // certificate is not chained to a public root. Omit for pooler/direct hosts.
+  // PEM-encoded CA that replaces the bundled Supabase Root 2021 CA (lib/db-tls.ts),
+  // e.g. after Supabase rotates its root or for a non-Supabase Postgres. Usually unset.
   SUPABASE_CA_CERT: z.string().min(1).optional(),
 });
 
