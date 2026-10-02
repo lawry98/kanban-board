@@ -62,7 +62,7 @@ lib/
 ├── analytics/events.ts           # Closed AnalyticsEventInput union + dedupe-key builders (no I/O)
 ├── analytics/track.ts            # Server-only best-effort event emitter (never throws)
 ├── supabase/{client,server,middleware}.ts   # Auth + Realtime clients only
-├── validations/{board,column,task,analytics}.ts   # Zod schemas
+├── validations/{board,column,task,invitation,analytics}.ts   # Zod schemas
 ├── utils.ts · constants.ts
 proxy.ts                          # Next 16 middleware (renamed from middleware.ts): route protection
 types/{board,index}.ts            # Shared types (Prisma-derived — see Types)
@@ -100,6 +100,10 @@ pnpm prisma format          # Format schema.prisma
 ```
 
 There is **no seed script** — `pnpm prisma db seed` is not configured (see Known Gaps).
+
+CI (`.github/workflows/ci.yml`) runs `prisma generate` → typecheck → `lint --max-warnings=0` → `format:check` → test → `build` (placeholder env). Any lint warning fails CI.
+
+`next.config.ts` sets `agentRules: false`: since Next 16.3, `next dev` otherwise writes a generated block into this file whenever it detects an AI agent. Keep it off.
 
 ---
 
@@ -148,7 +152,7 @@ There is **no seed script** — `pnpm prisma db seed` is not configured (see Kno
 
 ## Authorization (read this before touching `app/actions/`)
 
-All authorization lives in **`lib/auth/require-access.ts`**. It is the _only_ thing protecting application data (RLS does not — see below). Four rules:
+All authorization lives in **`lib/auth/require-access.ts`**. It is the _only_ thing protecting data on the Prisma path; RLS never runs there (grants + RLS guard only the Supabase Data API — see "Grants + RLS" below). Four rules:
 
 1. **Never trust a parent id from the client. Derive it from the child row.** To act on a task, call `requireTaskAccess(taskId)` — it loads the task, derives `boardId` from it, and authorizes that. Do **not** accept a `boardId` parameter alongside a `taskId`/`columnId` and check the parent; that is the exact shape that produced four cross-board IDORs. Helpers: `requireBoardAccess`, `requireColumnAccess`, `requireTaskAccess`. When a second client-supplied id is genuinely needed (moving a task to a target column), prove it with `requireColumnOnBoard(columnId, boardId)`.
 2. **Parse every input with Zod.** Client-data parameters are typed `unknown` on purpose and `.parse()`d at the top of the action — typing them as an input interface gives zero runtime safety across the Server Action boundary and misleads the reader. Schemas live in `lib/validations/`.
@@ -217,19 +221,40 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 `hooks/use-realtime.ts` subscribes per board and, on any `postgres_changes` event, debounces (300 ms) and re-fetches the whole board via `getBoardData`, dispatching `SYNC_STATE`. Syncs are sequence-numbered (a stale in-flight fetch cannot clobber newer state) and re-run on `SUBSCRIBED` (reconnect catch-up), tab refocus, and `online`. Deletes require `REPLICA IDENTITY FULL` (set in the migration) or their `board_id` filter never matches.
 
-**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the _subscriber's_ role (`authenticated`) under RLS. Prisma creates tables as the `postgres` owner and never grants DML to the Supabase roles, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grant is in `20260722000000_realtime_select_grants`; RLS still gates which rows are visible, so it widens nothing. When you publish a new table to `supabase_realtime`, add its `GRANT SELECT` too.
+**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the _subscriber's_ role (`authenticated`) under RLS. Migration-created tables start with no grants, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grants for `tasks`/`columns`/`board_members` are (re)asserted in `20261002053019_lock_down_data_api`; RLS still gates which rows are visible. Publishing a new table: follow the rules under "Grants + RLS" below.
 
 > Known limitation: a client's **own** writes echo back and trigger a resync (no origin filtering yet). The better design — server-emitted broadcast carrying an origin id, applied as a delta — is noted in the hook and deliberately out of scope for now.
 
 ### `analytics_events` — deliberately NOT published
 
-`analytics_events` (`lib/analytics/track.ts`) is the one table that intentionally does **not** follow the Realtime posture above: it is not published to `supabase_realtime`, has no RLS policy, and needs no `GRANT SELECT`, because Prisma (the `postgres` owner, `BYPASSRLS`) is its only reader and writer — nothing subscribes to it. Two more deliberate choices, so a future edit doesn't "fix" them into consistency with the rest of the schema: `board_id` carries **no foreign key**, so a board deletion (which cascades `invitations`/`board_members`/`columns`/`tasks`) cannot erase a churned cohort's activation history; `user_id` is `ON DELETE SET NULL`, so an erasure request leaves the events intact but unattributable rather than deleting them.
+`analytics_events` (`lib/analytics/track.ts`) is the one table that intentionally does **not** follow the Realtime posture above: it is not published to `supabase_realtime` and has RLS on with no policy and no grants (deny-all over the Data API), because Prisma (the `postgres` owner, `BYPASSRLS`) is its only reader and writer — nothing subscribes to it. Two more deliberate choices, so a future edit doesn't "fix" them into consistency with the rest of the schema: `board_id` carries **no foreign key**, so a board deletion (which cascades `invitations`/`board_members`/`columns`/`tasks`) cannot erase a churned cohort's activation history; `user_id` is `ON DELETE SET NULL`, so an erasure request leaves the events intact but unattributable rather than deleting them.
 
 Two rules when adding an event: put its property keys in `EVENT_PROPERTY_KEYS` (`lib/analytics/events.ts`) — `trackEvent` picks against that allowlist at write time, so a key missing from it is silently dropped rather than persisted — and remember that `trackEvent` keeps a per-instance memo of `dedupe_key`s it has already written. The memo only skips provably redundant round-trips (the dashboard layout re-renders on every `revalidatePath` response, not just on navigation); the UNIQUE index on `dedupe_key` remains the actual correctness guarantee.
 
-### Row Level Security — what it does and does NOT do
+### Grants + RLS — the Data API barrier
 
-**RLS does not protect application data.** Prisma connects as the `postgres` role, which owns the tables and has `BYPASSRLS`, so no policy is ever evaluated for app traffic. The RLS policies exist for **one** reason: to let Supabase Realtime authorize `postgres_changes`. Authorization for all reads and writes is the `require-access.ts` guards and nothing else. Do not add a policy and assume it defends anything at the query layer — it doesn't. (Making RLS a real second layer would require a dedicated non-superuser role and per-transaction JWT claims; that decision was deferred.)
+Three paths reach the database, and each has exactly one barrier:
+
+| Path                                                     | Connects as                                                    | Its only barrier                                             |
+| -------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
+| Prisma — every Server Action and Server Component        | `postgres` (table owner, `BYPASSRLS`)                          | the `require-access.ts` guards; grants and RLS never apply   |
+| Supabase **Data API** — REST `/rest/v1`, GraphQL, `/rpc` | `anon` (the public anon key) or `authenticated` (a user's JWT) | **table grants + RLS**; Zod and the guards never run         |
+| Realtime `postgres_changes`                              | `authenticated`                                                | `GRANT SELECT` + the SELECT policies (not on DELETE — below) |
+
+The anon key ships in the browser bundle, so anyone can call the Data API, even though the app itself never does. `20261002053019_lock_down_data_api` sets the posture; keep it:
+
+- `anon` holds no privilege on any `public` table or sequence.
+- `authenticated` holds `SELECT` on `tasks`, `columns` and `board_members` (the Realtime tables) and nothing else.
+- RLS is on for every table and only `SELECT` policies exist. RLS with no policy (`invitations`, `analytics_events`, `_prisma_migrations`) is deny-all.
+- `ALTER DEFAULT PRIVILEGES FOR ROLE postgres` makes migration-created tables start with no grants. Supabase keeps the old defaults `FOR ROLE supabase_admin`, which a migration can't change, so create tables only through migrations.
+
+When you add a table, enable RLS in the same migration and grant nothing. To publish it to Realtime, add `GRANT SELECT … TO authenticated` and a `SELECT` policy gated by `public.is_board_member(...)`, in a migration that sorts **after** the lockdown (the lockdown revokes grants made before it). Writes belong in Server Actions: a write grant or write policy reopens the path that skips Zod and the guards. A new `public` function is callable over `/rpc`, because Supabase's defaults still grant `EXECUTE` to `anon` and `authenticated` explicitly (`REVOKE … FROM PUBLIC` alone leaves those grants in place). Its migration should `REVOKE ALL ON FUNCTION … FROM PUBLIC, anon, authenticated` and then grant back only what a policy needs. The two existing functions keep those grants because they're harmless over `/rpc`: `is_board_member` only reports the caller's own membership, and `handle_new_user` only runs as a trigger.
+
+Realtime does not apply RLS to DELETE events (Postgres can't check a deleted row), so any signed-in subscriber whose filter matches gets them. With RLS on, the payload carries only the primary key, so a deleted row's id is the most that leaks.
+
+In the dashboard (Integrations → Data API → Settings), keep `public` out of **Exposed schemas** and keep **Automatically expose new tables** off. That toggle is the default-privileges grant the lockdown removed, so turning it on undoes part of the lockdown. Both are defense in depth; the grants above are the barrier either way.
+
+RLS is still not a second layer for Prisma traffic. Making it one would need a dedicated non-owner role and per-transaction JWT claims; that decision was deferred.
 
 ---
 
@@ -309,7 +334,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 
 1. **Don't accept a parent id from the client** in an action — derive it from the child row via `require*Access`.
 2. **Don't skip `.parse()`** — a typed parameter is not validation across the Server Action boundary.
-3. **Don't assume RLS protects data** — it doesn't; the guards do.
+3. **Guards protect Prisma traffic; grants + RLS protect the Data API** — neither covers the other. Put every write in a Server Action and grant `anon`/`authenticated` nothing beyond Realtime's `SELECT`.
 4. **Don't return `error.message`** to the client — use `toActionError`.
 5. Don't use `supabase.from()` for data; don't import Prisma into client components; don't `new PrismaClient()` outside `lib/prisma.ts`.
 6. Don't use `getSession()` for authorization — `getUser()` only.
@@ -326,5 +351,5 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
 - **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, and the DB TLS policy are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
-- **RLS is not a real authorization layer** — see the RLS section for what promoting it would require.
-- CI runs lint without `--max-warnings=0`; turn that on once any remaining warnings are cleared.
+- **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
+- **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.

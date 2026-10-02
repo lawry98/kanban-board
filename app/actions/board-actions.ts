@@ -22,10 +22,10 @@ import {
   updateBoardSchema,
   uuidSchema,
 } from '@/lib/validations/board';
-import { PUBLIC_PROFILE_SELECT } from '@/types/board';
+import { MEMBER_PROFILE_INCLUDE, PUBLIC_PROFILE_SELECT } from '@/types/board';
 import type { ActionResult } from '@/lib/auth/require-access';
-import type { BoardWithDetails } from '@/types';
-import type { Board, BoardMember } from '@prisma/client';
+import type { BoardMemberWithProfile, BoardWithDetails } from '@/types';
+import type { Board } from '@prisma/client';
 
 /** Gap between adjacent positions; see the fractional-ordering note in task-actions.ts. */
 const POSITION_STEP = 1000;
@@ -133,7 +133,7 @@ export async function deleteBoard(boardId: string): Promise<ActionResult<{ id: s
 export async function addBoardMember(
   boardId: string,
   input: unknown,
-): Promise<ActionResult<BoardMember>> {
+): Promise<ActionResult<BoardMemberWithProfile>> {
   try {
     const id = uuidSchema.parse(boardId);
     const { user } = await requireBoardAccess(id, OWNER_ROLES);
@@ -153,6 +153,7 @@ export async function addBoardMember(
 
     const member = await prisma.boardMember.create({
       data: { boardId: id, userId: targetProfile.id, role },
+      include: MEMBER_PROFILE_INCLUDE,
     });
 
     await logActivity({
@@ -174,7 +175,7 @@ export async function addBoardMember(
 export async function removeBoardMember(
   boardId: string,
   userId: string,
-): Promise<ActionResult<true>> {
+): Promise<ActionResult<{ id: string }>> {
   try {
     const id = uuidSchema.parse(boardId);
     const targetUserId = uuidSchema.parse(userId);
@@ -182,7 +183,7 @@ export async function removeBoardMember(
 
     // Read-then-delete in one transaction: removing the last OWNER would orphan the board
     // with no in-app way to recover it.
-    await prisma.$transaction(async (tx) => {
+    const removedId = await prisma.$transaction(async (tx) => {
       const target = await tx.boardMember.findFirst({
         where: { boardId: id, userId: targetUserId },
       });
@@ -196,6 +197,7 @@ export async function removeBoardMember(
       }
 
       await tx.boardMember.delete({ where: { id: target.id } });
+      return target.id;
     });
 
     await logActivity({
@@ -208,7 +210,7 @@ export async function removeBoardMember(
     });
 
     revalidatePath(`/board/${id}`);
-    return { data: true };
+    return { data: { id: removedId } };
   } catch (error) {
     return toActionError('removeBoardMember', error, 'Failed to remove member');
   }
@@ -218,7 +220,7 @@ export async function changeMemberRole(
   boardId: string,
   userId: string,
   input: unknown,
-): Promise<ActionResult<BoardMember>> {
+): Promise<ActionResult<BoardMemberWithProfile>> {
   try {
     const id = uuidSchema.parse(boardId);
     const targetUserId = uuidSchema.parse(userId);
@@ -228,18 +230,20 @@ export async function changeMemberRole(
     // Read-then-update in one transaction so the OWNER-target check cannot race a
     // concurrent role change. An OWNER's role is untouchable here — the schema
     // already forbids assigning OWNER; this also forbids demoting one.
-    const updated = await prisma.$transaction(async (tx) => {
+    const member = await prisma.$transaction(async (tx) => {
       const target = await tx.boardMember.findFirst({
         where: { boardId: id, userId: targetUserId },
-        include: { profile: { select: { email: true } } },
       });
       if (!target) throw new PublicError('User is not a member of this board');
       if (target.role === 'OWNER') {
         throw new PublicError("Owners' roles can't be changed here");
       }
 
-      const member = await tx.boardMember.update({ where: { id: target.id }, data: { role } });
-      return { member, email: target.profile.email };
+      return tx.boardMember.update({
+        where: { id: target.id },
+        data: { role },
+        include: MEMBER_PROFILE_INCLUDE,
+      });
     });
 
     await logActivity({
@@ -247,12 +251,12 @@ export async function changeMemberRole(
       userId: user.id,
       action: 'MEMBER_ROLE_CHANGED',
       entityType: 'member',
-      entityId: updated.member.id,
-      metadata: { email: updated.email, role },
+      entityId: member.id,
+      metadata: { email: member.profile.email, role },
     });
 
     revalidatePath(`/board/${id}`);
-    return { data: updated.member };
+    return { data: member };
   } catch (error) {
     return toActionError('changeMemberRole', error, 'Failed to change member role');
   }
@@ -320,7 +324,7 @@ export async function getBoardData(boardId: string): Promise<ActionResult<BoardW
             },
           },
         },
-        members: { include: { profile: true } },
+        members: { include: MEMBER_PROFILE_INCLUDE },
         creator: { select: PUBLIC_PROFILE_SELECT },
       },
     });
