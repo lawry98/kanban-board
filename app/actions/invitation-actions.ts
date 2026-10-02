@@ -15,7 +15,7 @@ import {
   toActionError,
 } from '@/lib/auth/require-access';
 import { uuidSchema } from '@/lib/validations/board';
-import { createInvitationSchema } from '@/lib/validations/invitation';
+import { createInvitationSchema, invitableRoleSchema } from '@/lib/validations/invitation';
 import { Prisma } from '@prisma/client';
 import type { ActionResult } from '@/lib/auth/require-access';
 import type { Invitation } from '@prisma/client';
@@ -133,6 +133,18 @@ export async function acceptInvitation(token: unknown): Promise<ActionResult<{ b
       throw new PublicError('This invite link is no longer valid');
     }
 
+    // Re-check the stored role: a row written around createInvitation (e.g. via
+    // the Supabase Data API) could claim OWNER. Fail closed rather than downgrade.
+    const parsedRole = invitableRoleSchema.safeParse(invitation.role);
+    if (!parsedRole.success) {
+      console.error('acceptInvitation: refused non-invitable role', {
+        invitationId: invitation.id,
+        role: invitation.role,
+      });
+      throw new PublicError('This invite link is no longer valid');
+    }
+    const role = parsedRole.data;
+
     const existing = await prisma.boardMember.findFirst({
       where: { boardId: invitation.boardId, userId: user.id },
       select: { id: true },
@@ -141,7 +153,7 @@ export async function acceptInvitation(token: unknown): Promise<ActionResult<{ b
 
     try {
       const member = await prisma.boardMember.create({
-        data: { boardId: invitation.boardId, userId: user.id, role: invitation.role },
+        data: { boardId: invitation.boardId, userId: user.id, role },
       });
 
       await logActivity({
@@ -150,7 +162,7 @@ export async function acceptInvitation(token: unknown): Promise<ActionResult<{ b
         action: 'MEMBER_ADDED',
         entityType: 'member',
         entityId: member.id,
-        metadata: { email: user.email ?? '', role: invitation.role },
+        metadata: { email: user.email ?? '', role },
       });
 
       // Only here: not on the already-a-member early return above, and not in the
@@ -161,7 +173,7 @@ export async function acceptInvitation(token: unknown): Promise<ActionResult<{ b
         boardId: invitation.boardId,
         properties: {
           invitationId: invitation.id,
-          role: invitation.role,
+          role,
           secondsSinceLinkCreated: Math.max(
             0,
             Math.round((Date.now() - invitation.createdAt.getTime()) / 1000),

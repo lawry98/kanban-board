@@ -10,7 +10,7 @@ import { createColumn } from '@/app/actions/column-actions';
 import { useBoardContext } from '@/contexts/board-context';
 
 export function AddColumnButton() {
-  const { board } = useBoardContext();
+  const { board, dispatch } = useBoardContext();
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -28,6 +28,11 @@ export function AddColumnButton() {
       return;
     }
 
+    // The provider seeds its reducer from `board` only once, so `revalidatePath`
+    // never reaches local state — dispatch, or the column waits for a resync.
+    if (result.data) {
+      dispatch({ type: 'ADD_COLUMN', payload: result.data });
+    }
     setTitle('');
     setIsEditing(false);
     toast.success('Column created');

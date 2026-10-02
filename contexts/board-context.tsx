@@ -165,6 +165,9 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
 
     case 'ADD_TASK': {
       const task = action.payload;
+      // Idempotent by id, in any column (a collaborator may have moved it): a
+      // resync may already hold this task, and its copy is at least as fresh.
+      if (state.columns.some((col) => col.tasks.some((t) => t.id === task.id))) return state;
       return {
         ...state,
         columns: state.columns.map((col) =>
@@ -284,6 +287,9 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
     }
 
     case 'ADD_COLUMN': {
+      // Idempotent by id: a resync may already hold this column, and its copy is
+      // at least as fresh.
+      if (state.columns.some((col) => col.id === action.payload.id)) return state;
       return { ...state, columns: [...state.columns, action.payload] };
     }
 
@@ -310,6 +316,33 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
       const position = positionBetween(columns[toIndex - 1], columns[toIndex]);
       columns.splice(toIndex, 0, moved.position === position ? moved : { ...moved, position });
       return { ...state, columns };
+    }
+
+    case 'ADD_MEMBER': {
+      // Idempotent by id: a resync may already hold this member, and its copy is
+      // at least as fresh.
+      if (state.members.some((member) => member.id === action.payload.id)) return state;
+      return { ...state, members: [...state.members, action.payload] };
+    }
+
+    case 'UPDATE_MEMBER': {
+      const updated = action.payload;
+      const existing = state.members.find((member) => member.id === updated.id);
+      // Absent: a resync already removed them, so don't bring them back. Same row:
+      // the echo beat this response, so keep the reference and skip the re-render.
+      if (!existing || isSameMember(existing, updated)) return state;
+      return {
+        ...state,
+        members: state.members.map((member) => (member.id === updated.id ? updated : member)),
+      };
+    }
+
+    case 'REMOVE_MEMBER': {
+      if (!state.members.some((member) => member.id === action.payload.memberId)) return state;
+      return {
+        ...state,
+        members: state.members.filter((member) => member.id !== action.payload.memberId),
+      };
     }
 
     case 'UPDATE_BOARD':

@@ -115,19 +115,23 @@ export async function updateTask(
 ): Promise<ActionResult<TaskWithAssignee>> {
   try {
     const id = uuidSchema.parse(taskId);
-    const { user, boardId } = await requireTaskAccess(id, EDITOR_ROLES);
+    const { user, boardId, task: current } = await requireTaskAccess(id, EDITOR_ROLES);
     const data = updateTaskSchema.parse(input);
 
-    // A column id in the payload is a second client-supplied id: prove it is on the same
-    // board before it can be written.
-    let position: number | undefined;
-    if (data.columnId !== undefined) {
+    // A `columnId` equal to the task's current column is not a move: clients may re-send it
+    // on every save, and re-appending would sink the card to the bottom of its own column.
+    let move: { columnId: string; position: number } | undefined;
+    if (data.columnId !== undefined && data.columnId !== current.columnId) {
+      // A second client-supplied id: prove it is on the same board before it can be written.
       await requireColumnOnBoard(data.columnId, boardId);
       const maxPosition = await prisma.task.aggregate({
         where: { columnId: data.columnId },
         _max: { position: true },
       });
-      position = (maxPosition._max.position ?? 0) + POSITION_STEP;
+      move = {
+        columnId: data.columnId,
+        position: (maxPosition._max.position ?? 0) + POSITION_STEP,
+      };
     }
 
     if (data.assigneeId) await requireBoardMemberExists(boardId, data.assigneeId);
@@ -143,7 +147,7 @@ export async function updateTask(
           dueDate: data.dueDate ? parseCalendarDate(data.dueDate) : null,
         }),
         ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
-        ...(data.columnId !== undefined && { columnId: data.columnId, position }),
+        ...move,
       },
       include: TASK_INCLUDE,
     });
