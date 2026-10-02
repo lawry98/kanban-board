@@ -171,6 +171,42 @@ describe('acceptInvitation', () => {
     );
   });
 
+  it('refuses an OWNER-role invitation row — a link can never grant ownership', async () => {
+    // createInvitation can't produce this row, but a row written around it (e.g.
+    // through the Supabase Data API) can. Accepting must not trust the stored role.
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ role: 'OWNER' }));
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: 'This invite link is no longer valid' });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+    expect(db.activityLog.create).not.toHaveBeenCalled();
+    expect(db.analyticsEvent.createMany).not.toHaveBeenCalled();
+    // The refusal is a tamper signal: logged with the row id, never the token.
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ invitationId: INVITATION_ID, role: 'OWNER' }),
+    );
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('tok_abc');
+    errorSpy.mockRestore();
+  });
+
+  it('still grants EDITOR from an EDITOR link', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ role: 'EDITOR' }));
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ data: { boardId: BOARD_A } });
+    expect(db.boardMember.create).toHaveBeenCalledWith({
+      data: { boardId: BOARD_A, userId: USER_ID, role: 'EDITOR' },
+    });
+  });
+
   it('treats a P2002 unique-violation race as already-a-member', async () => {
     db.invitation.findUnique.mockResolvedValue(makeInvitation());
     db.boardMember.findFirst.mockResolvedValue(null);
