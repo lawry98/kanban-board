@@ -24,6 +24,8 @@ import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { updateTask, deleteTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
 import { PRIORITY_LABELS } from '@/lib/constants';
+import { formatCalendarDate } from '@/lib/dates';
+import type { UpdateTaskInput } from '@/lib/validations/task';
 import type { TaskWithAssignee } from '@/types';
 
 interface TaskDetailDialogProps {
@@ -43,9 +45,8 @@ function TaskForm({ task, onClose }: TaskFormProps) {
   const [priority, setPriority] = useState<string>(task.priority);
   const [assigneeId, setAssigneeId] = useState<string>(task.assigneeId ?? 'none');
   const [columnId, setColumnId] = useState(task.columnId);
-  const [dueDate, setDueDate] = useState(
-    task.dueDate ? format(new Date(task.dueDate), 'yyyy-MM-dd') : '',
-  );
+  const initialDueDate = task.dueDate ? formatCalendarDate(task.dueDate) : '';
+  const [dueDate, setDueDate] = useState(initialDueDate);
   const [labelInput, setLabelInput] = useState('');
   const [labels, setLabels] = useState<string[]>(task.labels);
   const [isSaving, setIsSaving] = useState(false);
@@ -53,17 +54,28 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
   async function handleSave() {
     if (!title.trim()) return;
-    setIsSaving(true);
 
-    const result = await updateTask(task.id, {
-      title: title.trim(),
-      description: description || null,
-      priority: priority as TaskWithAssignee['priority'],
-      labels,
-      dueDate: dueDate || null,
-      assigneeId: assigneeId === 'none' ? null : assigneeId,
-      columnId,
-    });
+    // Only what the user changed: re-sending untouched fields would overwrite a
+    // collaborator's concurrent edit with this dialog's stale copy.
+    const changes: UpdateTaskInput = {};
+    if (title.trim() !== task.title) changes.title = title.trim();
+    if (description !== (task.description ?? '')) changes.description = description || null;
+    if (priority !== task.priority) changes.priority = priority as TaskWithAssignee['priority'];
+    if (labels.length !== task.labels.length || labels.some((l, i) => l !== task.labels[i])) {
+      changes.labels = labels;
+    }
+    if (dueDate !== initialDueDate) changes.dueDate = dueDate || null;
+    const nextAssigneeId = assigneeId === 'none' ? null : assigneeId;
+    if (nextAssigneeId !== task.assigneeId) changes.assigneeId = nextAssigneeId;
+    if (columnId !== task.columnId) changes.columnId = columnId;
+
+    if (Object.keys(changes).length === 0) {
+      onClose();
+      return;
+    }
+
+    setIsSaving(true);
+    const result = await updateTask(task.id, changes);
 
     setIsSaving(false);
 

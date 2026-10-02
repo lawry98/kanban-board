@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { prisma } from '@/lib/prisma';
+import { parseCalendarDate } from '@/lib/dates';
 import {
   EDITOR_ROLES,
   logActivity,
@@ -84,7 +85,7 @@ export async function createTask(input: unknown): Promise<ActionResult<TaskWithA
         description: data.description,
         priority: data.priority ?? 'NONE',
         labels: data.labels ?? [],
-        dueDate: data.dueDate ? new Date(data.dueDate) : null,
+        dueDate: data.dueDate ? parseCalendarDate(data.dueDate) : null,
         assigneeId: data.assigneeId ?? null,
         position: (maxPosition._max.position ?? 0) + POSITION_STEP,
         createdBy: user.id,
@@ -139,7 +140,7 @@ export async function updateTask(
         ...(data.priority !== undefined && { priority: data.priority }),
         ...(data.labels !== undefined && { labels: data.labels }),
         ...(data.dueDate !== undefined && {
-          dueDate: data.dueDate ? new Date(data.dueDate) : null,
+          dueDate: data.dueDate ? parseCalendarDate(data.dueDate) : null,
         }),
         ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
         ...(data.columnId !== undefined && { columnId: data.columnId, position }),
