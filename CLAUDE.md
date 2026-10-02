@@ -101,6 +101,8 @@ pnpm prisma format          # Format schema.prisma
 
 There is **no seed script** — `pnpm prisma db seed` is not configured (see Known Gaps).
 
+CI (`.github/workflows/ci.yml`) runs typecheck → `lint --max-warnings=0` → `format:check` → test → `build` (placeholder env). Any lint warning fails CI.
+
 `next.config.ts` sets `agentRules: false`: since Next 16.3, `next dev` otherwise writes a generated block into this file whenever it detects an AI agent. Keep it off.
 
 ---
@@ -330,4 +332,3 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a real authorization layer** — see the RLS section for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. They clear once a Prisma 7 release bumps the pins. Don't paper over them with `overrides`.
-- CI runs lint without `--max-warnings=0`; turn that on once any remaining warnings are cleared.
