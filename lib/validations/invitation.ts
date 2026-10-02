@@ -1,12 +1,16 @@
 import { z } from 'zod';
 
 /**
- * OWNER is deliberately not assignable — a link can only ever grant EDITOR or
- * VIEWER, mirroring `addBoardMemberSchema`. Token and expiry are server-generated
- * (crypto), never client input.
+ * The only roles an invite link may grant. OWNER is deliberately not assignable,
+ * mirroring `addBoardMemberSchema`. Enforced twice: when a link is created, and
+ * again when it is accepted, because a stored row is not proof it came through
+ * `createInvitation`.
  */
+export const invitableRoleSchema = z.enum(['EDITOR', 'VIEWER']);
+
+/** Token and expiry are server-generated (crypto), never client input. */
 export const createInvitationSchema = z.object({
-  role: z.enum(['EDITOR', 'VIEWER']),
+  role: invitableRoleSchema,
   email: z
     .email('Enter a valid email address')
     .trim()
