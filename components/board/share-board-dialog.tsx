@@ -29,6 +29,7 @@ import {
   getInvitations,
   revokeInvitation,
 } from '@/app/actions/invitation-actions';
+import { useBoardContext } from '@/contexts/board-context';
 import type { Invitation } from '@prisma/client';
 
 type LinkRole = 'EDITOR' | 'VIEWER';
@@ -45,6 +46,7 @@ function joinUrl(token: string): string {
 }
 
 export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDialogProps) {
+  const { dispatch } = useBoardContext();
   const [invitations, setInvitations] = useState<Invitation[] | null>(null);
   const [linkRole, setLinkRole] = useState<LinkRole>('EDITOR');
   const [creating, setCreating] = useState(false);
@@ -120,6 +122,11 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
     if (result.error) {
       toast.error(result.error);
       return;
+    }
+    // The provider seeds its reducer from `board` only once, so `revalidatePath`
+    // never reaches local state — dispatch, or the member waits for a resync.
+    if (result.data) {
+      dispatch({ type: 'ADD_MEMBER', payload: result.data });
     }
     toast.success(`${email.trim()} added to the board`);
     setEmail('');
