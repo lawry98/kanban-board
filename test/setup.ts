@@ -12,8 +12,13 @@ import { configure } from '@testing-library/react';
  * nothing to do with the code under test.
  *
  * Raising the ceiling costs nothing when a test passes — `waitFor` returns as soon
- * as its condition holds, so this only changes how long a genuinely failing
- * assertion waits before reporting. It buys headroom against timing flakes without
- * weakening a single assertion.
+ * as its condition holds. It buys headroom against timing flakes without weakening
+ * a single assertion.
+ *
+ * A failing assertion now polls for the full 5000 ms before it throws, so Vitest's
+ * per-test `testTimeout` must be higher than this value or it kills the test first
+ * and reports "Test timed out" instead of the assertion diff. Vitest's default is
+ * also 5000 ms, which is why vitest.config.ts sets `testTimeout` to 10000. Change
+ * the two together.
  */
 configure({ asyncUtilTimeout: 5000 });
