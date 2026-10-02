@@ -118,6 +118,22 @@ describe('boardReducer', () => {
     expect(layout(state)).toEqual({ todo: ['t1', 't2', 't3'], done: ['d1'] });
   });
 
+  it('ADD_TASK is a no-op when a sync already holds the task, even in another column', () => {
+    // A collaborator moved the new task to `done` before the creator's ADD_TASK landed.
+    const synced = boardReducer(makeState(), {
+      type: 'SYNC_STATE',
+      payload: {
+        columns: [makeColumn('todo', ['t1', 't2', 't3']), makeColumn('done', ['d1', 't4'])],
+        members: [],
+      },
+    });
+
+    const added = boardReducer(synced, { type: 'ADD_TASK', payload: makeTask('t4', 'todo', 3) });
+
+    expect(layout(added)).toEqual({ todo: ['t1', 't2', 't3'], done: ['d1', 't4'] });
+    expect(added).toBe(synced);
+  });
+
   it('DELETE_TASK removes the task from the named column only', () => {
     const result = boardReducer(makeState(), {
       type: 'DELETE_TASK',
@@ -194,6 +210,46 @@ describe('boardReducer', () => {
       payload: { columnId: 'done' },
     });
     expect(removed.columns.map((c) => c.id)).toEqual(['todo', 'review']);
+  });
+
+  it('ADD_COLUMN followed by its realtime echo leaves exactly one copy', () => {
+    const added = boardReducer(makeState(), {
+      type: 'ADD_COLUMN',
+      payload: makeColumn('review', []),
+    });
+    const echo: BoardState = {
+      columns: [
+        makeColumn('todo', ['t1', 't2', 't3']),
+        makeColumn('done', ['d1']),
+        makeColumn('review', []),
+      ],
+      members: [],
+    };
+
+    const synced = boardReducer(added, { type: 'SYNC_STATE', payload: echo });
+
+    expect(synced.columns.map((c) => c.id)).toEqual(['todo', 'done', 'review']);
+    // Reconciliation keeps the locally added column, so the echo does not re-render.
+    expect(synced).toBe(added);
+  });
+
+  it('ADD_COLUMN is a no-op when a sync already holds the column', () => {
+    const synced = boardReducer(makeState(), {
+      type: 'SYNC_STATE',
+      payload: {
+        columns: [
+          makeColumn('todo', ['t1', 't2', 't3']),
+          makeColumn('done', ['d1']),
+          makeColumn('review', []),
+        ],
+        members: [],
+      },
+    });
+
+    const added = boardReducer(synced, { type: 'ADD_COLUMN', payload: makeColumn('review', []) });
+
+    expect(added.columns.map((c) => c.id)).toEqual(['todo', 'done', 'review']);
+    expect(added).toBe(synced);
   });
 
   describe('members', () => {
