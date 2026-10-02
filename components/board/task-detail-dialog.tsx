@@ -8,7 +8,13 @@ import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -110,6 +116,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="sr-only">Task details</DialogTitle>
+          <DialogDescription className="sr-only">
+            {canEdit ? "View and edit this task's details." : "View this task's details."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
