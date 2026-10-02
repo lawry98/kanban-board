@@ -7,7 +7,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getActivityLogs } from '@/app/actions/task-actions';
 import type { ActivityLogWithProfile } from '@/app/actions/task-actions';
@@ -105,6 +111,7 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
       <SheetContent className="w-80 sm:w-96">
         <SheetHeader>
           <SheetTitle>Activity</SheetTitle>
+          <SheetDescription className="sr-only">Recent changes to this board.</SheetDescription>
         </SheetHeader>
         <Separator className="my-4" />
         <ScrollArea className="h-[calc(100vh-120px)]">
