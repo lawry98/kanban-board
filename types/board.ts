@@ -14,6 +14,13 @@ export const PUBLIC_PROFILE_SELECT = {
 
 export type PublicProfile = Pick<Profile, 'id' | 'fullName' | 'avatarUrl'>;
 
+/**
+ * How every member row is loaded. `getBoardData` and the member mutations share it, so a
+ * row a mutation returns (and the client dispatches into board state) carries exactly the
+ * profile fields a resync would.
+ */
+export const MEMBER_PROFILE_INCLUDE = { profile: true } as const;
+
 export type TaskWithAssignee = Task & {
   assignee: PublicProfile | null;
   creator: PublicProfile | null;

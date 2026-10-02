@@ -4,6 +4,7 @@ import type { Mock } from 'vitest';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     invitation: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    profile: { findUnique: vi.fn() },
     boardMember: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -29,7 +30,12 @@ import {
   getInvitations,
   revokeInvitation,
 } from '@/app/actions/invitation-actions';
-import { changeMemberRole, leaveBoard } from '@/app/actions/board-actions';
+import {
+  addBoardMember,
+  changeMemberRole,
+  leaveBoard,
+  removeBoardMember,
+} from '@/app/actions/board-actions';
 import { Prisma } from '@prisma/client';
 
 // Valid UUIDs — the actions `uuidSchema.parse()` every client-supplied id.
@@ -43,6 +49,7 @@ const INVITATION_ID = '55555555-5555-4555-8555-555555555555';
 // authorization-branch tests, so drive the mocks through a permissive handle.
 const db = prisma as unknown as {
   invitation: { findUnique: Mock; findMany: Mock; create: Mock; update: Mock };
+  profile: { findUnique: Mock };
   boardMember: { findFirst: Mock; create: Mock; update: Mock; count: Mock; delete: Mock };
   activityLog: { create: Mock };
   analyticsEvent: { createMany: Mock };
@@ -84,6 +91,18 @@ function makeMember(overrides: Record<string, unknown> = {}) {
     role: 'OWNER',
     joinedAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
+  };
+}
+
+/** The full profile row — what `getBoardData` ships for each member. */
+function makeProfile(id: string, email: string) {
+  return {
+    id,
+    email,
+    fullName: 'Target User',
+    avatarUrl: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 }
 
@@ -150,6 +169,42 @@ describe('acceptInvitation', () => {
     expect(db.activityLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'MEMBER_ADDED' }) }),
     );
+  });
+
+  it('refuses an OWNER-role invitation row — a link can never grant ownership', async () => {
+    // createInvitation can't produce this row, but a row written around it (e.g.
+    // through the Supabase Data API) can. Accepting must not trust the stored role.
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ role: 'OWNER' }));
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: 'This invite link is no longer valid' });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+    expect(db.activityLog.create).not.toHaveBeenCalled();
+    expect(db.analyticsEvent.createMany).not.toHaveBeenCalled();
+    // The refusal is a tamper signal: logged with the row id, never the token.
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ invitationId: INVITATION_ID, role: 'OWNER' }),
+    );
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('tok_abc');
+    errorSpy.mockRestore();
+  });
+
+  it('still grants EDITOR from an EDITOR link', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ role: 'EDITOR' }));
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ data: { boardId: BOARD_A } });
+    expect(db.boardMember.create).toHaveBeenCalledWith({
+      data: { boardId: BOARD_A, userId: USER_ID, role: 'EDITOR' },
+    });
   });
 
   it('treats a P2002 unique-violation race as already-a-member', async () => {
@@ -369,26 +424,26 @@ describe('changeMemberRole', () => {
     expect(db.boardMember.update).not.toHaveBeenCalled();
   });
 
-  it('updates a non-owner member and logs MEMBER_ROLE_CHANGED with their email', async () => {
-    const updated = makeMember({ id: 'member-2', userId: TARGET_ID, role: 'VIEWER' });
+  it('updates a non-owner member, returns it with its profile, and logs their email', async () => {
+    const updated = makeMember({
+      id: 'member-2',
+      userId: TARGET_ID,
+      role: 'VIEWER',
+      profile: makeProfile(TARGET_ID, 'target@x.io'),
+    });
     db.boardMember.findFirst
       .mockResolvedValueOnce(makeMember({ role: 'OWNER' })) // caller is owner
-      .mockResolvedValueOnce(
-        makeMember({
-          id: 'member-2',
-          userId: TARGET_ID,
-          role: 'EDITOR',
-          profile: { email: 'target@x.io' },
-        }),
-      );
+      .mockResolvedValueOnce(makeMember({ id: 'member-2', userId: TARGET_ID, role: 'EDITOR' }));
     db.boardMember.update.mockResolvedValue(updated);
 
     const result = await changeMemberRole(BOARD_A, TARGET_ID, { role: 'VIEWER' });
 
+    // The client dispatches this row straight into board state.
     expect(result).toEqual({ data: updated });
     expect(db.boardMember.update).toHaveBeenCalledWith({
       where: { id: 'member-2' },
       data: { role: 'VIEWER' },
+      include: { profile: true },
     });
     expect(db.activityLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -398,6 +453,45 @@ describe('changeMemberRole', () => {
         }),
       }),
     );
+  });
+});
+
+describe('addBoardMember', () => {
+  it('returns the new member with the same profile fields getBoardData ships', async () => {
+    const created = makeMember({
+      id: 'member-new',
+      userId: TARGET_ID,
+      role: 'VIEWER',
+      profile: makeProfile(TARGET_ID, 'target@x.io'),
+    });
+    db.boardMember.findFirst
+      .mockResolvedValueOnce(makeMember({ role: 'OWNER' })) // caller is owner
+      .mockResolvedValueOnce(null); // target is not yet a member
+    db.profile.findUnique.mockResolvedValue({ id: TARGET_ID });
+    db.boardMember.create.mockResolvedValue(created);
+
+    const result = await addBoardMember(BOARD_A, { email: 'target@x.io', role: 'VIEWER' });
+
+    expect(result).toEqual({ data: created });
+    expect(db.boardMember.create).toHaveBeenCalledWith({
+      data: { boardId: BOARD_A, userId: TARGET_ID, role: 'VIEWER' },
+      include: { profile: true },
+    });
+  });
+});
+
+describe('removeBoardMember', () => {
+  it('returns the id of the removed membership', async () => {
+    db.boardMember.findFirst
+      .mockResolvedValueOnce(makeMember({ role: 'OWNER' })) // caller is owner
+      .mockResolvedValueOnce(makeMember({ id: 'member-2', userId: TARGET_ID, role: 'EDITOR' }));
+    db.boardMember.delete.mockResolvedValue({ id: 'member-2' });
+
+    const result = await removeBoardMember(BOARD_A, TARGET_ID);
+
+    // The client removes the row from board state by this id.
+    expect(result).toEqual({ data: { id: 'member-2' } });
+    expect(db.boardMember.delete).toHaveBeenCalledWith({ where: { id: 'member-2' } });
   });
 });
 
