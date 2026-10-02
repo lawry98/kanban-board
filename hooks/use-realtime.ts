@@ -4,12 +4,16 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type { Dispatch } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 import { createClient } from '@/lib/supabase/client';
 import { getBoardData } from '@/app/actions/board-actions';
 import type { BoardAction } from '@/types';
 
 const SYNC_DEBOUNCE_MS = 300;
+// Resubscribe backoff after CHANNEL_ERROR / TIMED_OUT: 1s, 2s, 4s, … capped at 30s.
+const RESUBSCRIBE_BASE_MS = 1_000;
+const RESUBSCRIBE_MAX_MS = 30_000;
 
 /**
  * `getBoardData` returns this exact string (from `requireBoardMember`) once the
@@ -44,11 +48,40 @@ const ACCESS_LOST_ERROR = 'Forbidden';
  *    the newest is dropped. Effect cleanup also bumps the sequence, which
  *    invalidates any fetch in flight across unmount / `boardId` change.
  *
- * 4. Recovery: `SUBSCRIBED` is the reconnect catch-up. Supabase transparently
- *    re-establishes the socket after a network drop, but every event during the
- *    gap is lost forever, so we resync unconditionally whenever the channel
- *    (re)subscribes. Tab refocus and `online` do the same, since a backgrounded
- *    tab may have had its socket throttled or closed.
+ * 4. Recovery: `SUBSCRIBED` is the catch-up. Every event during a gap in the
+ *    subscription is lost forever, so we resync unconditionally whenever the
+ *    channel (re)subscribes. Tab refocus and `online` resync too, and also
+ *    resubscribe at once if the channel is down, since a backgrounded tab may
+ *    have had its socket throttled or closed and the backoff in (6) can be up to
+ *    30s away.
+ *
+ * 5. Auth: the channel must join *as the user*. Realtime fixes the claims of a
+ *    `postgres_changes` subscription at join and filters every event through
+ *    RLS with them, so an anon join reports SUBSCRIBED and then silently
+ *    receives nothing. realtime-js copies the socket's token into the join
+ *    payload synchronously inside `subscribe()`; on a fresh socket that token is
+ *    not yet resolved, and with no session supabase-js falls back to the anon
+ *    key. Hence: read the session, `await setAuth(access_token)`, *then*
+ *    subscribe — and never subscribe without a session. Auth events are hints in
+ *    the same way as (1): on each one we re-read the session and resubscribe
+ *    only if the user changed. A same-user token refresh needs nothing from us;
+ *    supabase-js pushes the new token to the joined channel.
+ *
+ * 6. CHANNEL_ERROR, TIMED_OUT and a server-initiated CLOSED (e.g. an expired
+ *    JWT) tear the channel down and resubscribe from scratch (fresh session and
+ *    token) after a capped exponential backoff. Left alone, realtime-js would
+ *    rejoin with its old join payload, or after CLOSED not at all. Removing our
+ *    last channel also makes it disconnect the socket, cancelling its own
+ *    reconnect, so reconnection is ours to drive.
+ *
+ * 7. realtime-js disconnects the socket the moment its last channel is removed,
+ *    and while that disconnect is in flight `connect()` is a no-op, so a join
+ *    sent then is never delivered (it times out ~10s later). So the socket's
+ *    channel list must not empty between a teardown and the join after it. Each
+ *    effect run builds its channel synchronously, before connect() awaits (the
+ *    previous run's cleanup has just removed its own). A user change joins the
+ *    new channel before removing the old one. A failed channel gets a reserved
+ *    successor before it is removed.
  *
  * Known better design (deliberately out of scope for this pass): switch to
  * `broadcast` messages carrying the mutated row plus an origin id, so a client
@@ -106,56 +139,161 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
   useEffect(() => {
     const supabase = createClient();
     let disposed = false;
+    // The channel this run has subscribed (joined or joining), and its user.
+    let channel: RealtimeChannel | null = null;
+    let channelUserId: string | null = null;
+    // Built but not yet subscribed: the next join, held in reserve; see (7).
+    let reserved: RealtimeChannel | null = null;
+    // Each connect() takes a generation; one that resumes from an await after a
+    // newer connect() (or cleanup) has started must not subscribe.
+    let connectGen = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryAttempt = 0;
+    let outageNotified = false;
 
-    // Unique topic per subscription instance: React 19 StrictMode mounts the
-    // effect twice, and `removeChannel` is async, so two channels sharing a
-    // topic can briefly overlap on one client. A unique suffix makes each
-    // subscription independent and guarantees cleanup removes exactly the
-    // channel this run created.
-    const topic = `board:${boardId}:${Math.random().toString(36).slice(2, 10)}`;
+    function removeCurrentChannel() {
+      if (!channel) return;
+      const stale = channel;
+      channel = null;
+      channelUserId = null;
+      void supabase.removeChannel(stale);
+    }
 
-    const channel = supabase
-      .channel(topic)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks', filter: `board_id=eq.${boardId}` },
-        debouncedSync,
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'columns', filter: `board_id=eq.${boardId}` },
-        debouncedSync,
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'board_members', filter: `board_id=eq.${boardId}` },
-        debouncedSync,
-      )
-      .subscribe((status) => {
-        if (disposed) return;
+    function scheduleResubscribe() {
+      if (disposed || retryTimer) return;
+      const delay = Math.min(RESUBSCRIBE_BASE_MS * 2 ** retryAttempt, RESUBSCRIBE_MAX_MS);
+      retryAttempt += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void connect();
+      }, delay);
+    }
+
+    function createChannel(): RealtimeChannel {
+      // Unique topic per subscription instance: React 19 StrictMode mounts the
+      // effect twice, and `removeChannel` is async, so two channels sharing a
+      // topic can briefly overlap on one client. A unique suffix makes each
+      // subscription independent and guarantees cleanup removes exactly the
+      // channel this run created.
+      const topic = `board:${boardId}:${Math.random().toString(36).slice(2, 10)}`;
+
+      return supabase
+        .channel(topic)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'tasks', filter: `board_id=eq.${boardId}` },
+          debouncedSync,
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'columns', filter: `board_id=eq.${boardId}` },
+          debouncedSync,
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'board_members',
+            filter: `board_id=eq.${boardId}`,
+          },
+          debouncedSync,
+        );
+    }
+
+    function join(next: RealtimeChannel, userId: string) {
+      channel = next;
+      channelUserId = userId;
+
+      next.subscribe((status) => {
+        // A replaced or removed channel still reports (its teardown emits CLOSED).
+        if (disposed || next !== channel) return;
         switch (status) {
           case 'SUBSCRIBED':
             // Initial join *and* every reconnect: catch up on missed events.
+            retryAttempt = 0;
+            outageNotified = false;
             void syncBoard();
             break;
           case 'CHANNEL_ERROR':
-            toast.error('Lost the live connection to this board. Reload if updates stop arriving.');
-            break;
           case 'TIMED_OUT':
-            toast.error('Live updates timed out. Reconnecting…');
-            break;
-          default:
-            // 'CLOSED' is also emitted during normal teardown — nothing to do.
+          case 'CLOSED':
+            // Our own teardown's CLOSED is filtered out above, so a CLOSED here came
+            // from the server (e.g. an expired JWT), and realtime-js won't rejoin it.
+            reserved ??= createChannel();
+            removeCurrentChannel();
+            if (!outageNotified) {
+              outageNotified = true;
+              toast.error('Live updates interrupted. Reconnecting…');
+            }
+            scheduleResubscribe();
             break;
         }
       });
+    }
 
+    // See (5): never join before the socket carries the user's token.
+    async function connect() {
+      const gen = ++connectGen;
+      const superseded = () => disposed || gen !== connectGen;
+      try {
+        // This only picks the token to join with (Realtime verifies the JWT), so it
+        // is not the authorization check CLAUDE.md reserves for getUser().
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
+        if (superseded()) return;
+        // Already joined as this user (e.g. after a token refresh): keep the channel.
+        if (channel && session?.user.id === channelUserId) return;
+
+        if (!session) {
+          removeCurrentChannel();
+          console.error(
+            `useRealtime: no auth session; not subscribing to board ${boardId}.`,
+            error ?? '',
+          );
+          return;
+        }
+
+        await supabase.realtime.setAuth(session.access_token);
+        if (superseded()) return;
+        // Join the replacement before letting go of the old channel; see (7).
+        const previous = channel;
+        join(reserved ?? createChannel(), session.user.id);
+        reserved = null;
+        if (previous) void supabase.removeChannel(previous);
+      } catch (err) {
+        if (superseded()) return;
+        console.error('useRealtime: failed to subscribe', err);
+        scheduleResubscribe();
+      }
+    }
+
+    // Never await in here: auth-js awaits this callback while holding its storage
+    // lock, and getSession() queues on that same lock — awaiting would deadlock.
+    const {
+      data: { subscription: authSubscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      if (!disposed) void connect();
+    });
+
+    // Build this run's channel now, before connect() awaits: the previous run's
+    // cleanup has just removed its own; see (7).
+    reserved = createChannel();
+    void connect();
+
+    // connect() is a no-op while the channel is up, and resubscribes at once if
+    // it is down; see (4).
     function handleVisibilityChange() {
-      if (document.visibilityState === 'visible') debouncedSync();
+      if (document.visibilityState !== 'visible') return;
+      debouncedSync();
+      void connect();
     }
 
     function handleOnline() {
       debouncedSync();
+      void connect();
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -163,6 +301,10 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
 
     return () => {
       disposed = true;
+      authSubscription.unsubscribe();
+      if (retryTimer) clearTimeout(retryTimer);
+      removeCurrentChannel();
+      if (reserved) void supabase.removeChannel(reserved);
       // Invalidate any in-flight fetch so it cannot dispatch into a stale board.
       syncSeqRef.current += 1;
       if (debounceRef.current) {
@@ -171,7 +313,6 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
-      void supabase.removeChannel(channel);
     };
   }, [boardId, debouncedSync, syncBoard]);
 }
