@@ -329,4 +329,5 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, and the DB TLS policy are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a real authorization layer** — see the RLS section for what promoting it would require.
+- **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. They clear once a Prisma 7 release bumps the pins. Don't paper over them with `overrides`.
 - CI runs lint without `--max-warnings=0`; turn that on once any remaining warnings are cleared.
