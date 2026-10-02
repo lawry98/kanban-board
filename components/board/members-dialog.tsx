@@ -43,9 +43,8 @@ interface MembersDialogProps {
 }
 
 export function MembersDialog({ open, onOpenChange }: MembersDialogProps) {
-  const { state, board, isOwner, currentUserId } = useBoardContext();
-  // Disables a row's controls while its action is in flight; realtime then
-  // refreshes state.members, so no optimistic reducer write is needed.
+  const { state, dispatch, board, isOwner, currentUserId } = useBoardContext();
+  // Disables a row's controls while its action is in flight.
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
 
@@ -60,6 +59,11 @@ export function MembersDialog({ open, onOpenChange }: MembersDialogProps) {
       toast.error(result.error);
       return;
     }
+    // The provider seeds its reducer from `board` only once, so `revalidatePath`
+    // never reaches local state — dispatch, or the row waits for a resync.
+    if (result.data) {
+      dispatch({ type: 'UPDATE_MEMBER', payload: result.data });
+    }
     toast.success('Role updated');
   }
 
@@ -70,6 +74,9 @@ export function MembersDialog({ open, onOpenChange }: MembersDialogProps) {
     if (result.error) {
       toast.error(result.error);
       return;
+    }
+    if (result.data) {
+      dispatch({ type: 'REMOVE_MEMBER', payload: { memberId: result.data.id } });
     }
     toast.success('Member removed');
   }
