@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { boardReducer } from '@/contexts/board-context';
 
-import type { BoardState, ColumnWithTasks, TaskWithAssignee } from '@/types';
+import type {
+  BoardMemberWithProfile,
+  BoardState,
+  ColumnWithTasks,
+  TaskWithAssignee,
+} from '@/types';
+import type { Role } from '@prisma/client';
 
 const EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
@@ -48,6 +54,31 @@ function makeState(): BoardState {
   return {
     columns: [makeColumn('todo', ['t1', 't2', 't3']), makeColumn('done', ['d1'])],
     members: [],
+  };
+}
+
+function makeMember(id: string, userId: string, role: Role): BoardMemberWithProfile {
+  return {
+    id,
+    boardId: 'board-1',
+    userId,
+    role,
+    joinedAt: EPOCH,
+    profile: {
+      id: userId,
+      email: `${userId}@example.com`,
+      fullName: `User ${userId}`,
+      avatarUrl: null,
+      createdAt: EPOCH,
+      updatedAt: EPOCH,
+    },
+  };
+}
+
+function makeMemberState(): BoardState {
+  return {
+    ...makeState(),
+    members: [makeMember('m1', 'u1', 'OWNER'), makeMember('m2', 'u2', 'EDITOR')],
   };
 }
 
@@ -219,5 +250,119 @@ describe('boardReducer', () => {
 
     expect(added.columns.map((c) => c.id)).toEqual(['todo', 'done', 'review']);
     expect(added).toBe(synced);
+  });
+
+  describe('members', () => {
+    it('ADD_MEMBER appends the member without mutating the input', () => {
+      const state = makeMemberState();
+
+      const result = boardReducer(state, {
+        type: 'ADD_MEMBER',
+        payload: makeMember('m3', 'u3', 'VIEWER'),
+      });
+
+      expect(result.members.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+      expect(state.members.map((m) => m.id)).toEqual(['m1', 'm2']);
+    });
+
+    it('UPDATE_MEMBER replaces that member and keeps every other member reference', () => {
+      const state = makeMemberState();
+
+      const result = boardReducer(state, {
+        type: 'UPDATE_MEMBER',
+        payload: makeMember('m2', 'u2', 'VIEWER'),
+      });
+
+      expect(result.members.map((m) => [m.id, m.role])).toEqual([
+        ['m1', 'OWNER'],
+        ['m2', 'VIEWER'],
+      ]);
+      expect(result.members[0]).toBe(state.members[0]);
+    });
+
+    it('REMOVE_MEMBER removes the member with that id', () => {
+      const result = boardReducer(makeMemberState(), {
+        type: 'REMOVE_MEMBER',
+        payload: { memberId: 'm2' },
+      });
+
+      expect(result.members.map((m) => m.id)).toEqual(['m1']);
+    });
+
+    it('ADD_MEMBER is a no-op when a sync already holds the member', () => {
+      const synced = boardReducer(makeMemberState(), {
+        type: 'SYNC_STATE',
+        payload: {
+          ...makeState(),
+          members: [
+            makeMember('m1', 'u1', 'OWNER'),
+            makeMember('m2', 'u2', 'EDITOR'),
+            makeMember('m3', 'u3', 'VIEWER'),
+          ],
+        },
+      });
+
+      const added = boardReducer(synced, {
+        type: 'ADD_MEMBER',
+        payload: makeMember('m3', 'u3', 'VIEWER'),
+      });
+
+      expect(added.members.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+      expect(added).toBe(synced);
+    });
+
+    it('ADD_MEMBER followed by its realtime echo leaves exactly one copy', () => {
+      const added = boardReducer(makeMemberState(), {
+        type: 'ADD_MEMBER',
+        payload: makeMember('m3', 'u3', 'VIEWER'),
+      });
+      const echo: BoardState = {
+        ...makeState(),
+        members: [
+          makeMember('m1', 'u1', 'OWNER'),
+          makeMember('m2', 'u2', 'EDITOR'),
+          makeMember('m3', 'u3', 'VIEWER'),
+        ],
+      };
+
+      const synced = boardReducer(added, { type: 'SYNC_STATE', payload: echo });
+
+      expect(synced.members.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+      expect(synced.members).toBe(added.members);
+    });
+
+    it('UPDATE_MEMBER does not resurrect a member a sync already removed', () => {
+      const state = makeMemberState();
+
+      const result = boardReducer(state, {
+        type: 'UPDATE_MEMBER',
+        payload: makeMember('m3', 'u3', 'VIEWER'),
+      });
+
+      expect(result).toBe(state);
+    });
+
+    it('UPDATE_MEMBER keeps the state reference when the echo already applied it', () => {
+      const state = makeMemberState();
+
+      // A fresh but identical row, as a resync that beat the action's response delivers.
+      const result = boardReducer(state, {
+        type: 'UPDATE_MEMBER',
+        payload: makeMember('m2', 'u2', 'EDITOR'),
+      });
+
+      expect(result).toBe(state);
+    });
+
+    it('REMOVE_MEMBER is a no-op when the member is already gone', () => {
+      const state = makeMemberState();
+
+      const result = boardReducer(state, {
+        type: 'REMOVE_MEMBER',
+        payload: { memberId: 'm3' },
+      });
+
+      expect(result).toBe(state);
+    });
   });
 });

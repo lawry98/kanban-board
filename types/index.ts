@@ -35,5 +35,8 @@ export type BoardAction =
   | { type: 'ADD_COLUMN'; payload: ColumnWithTasks }
   | { type: 'UPDATE_COLUMN'; payload: Partial<Column> & { id: string } }
   | { type: 'DELETE_COLUMN'; payload: { columnId: string } }
+  | { type: 'ADD_MEMBER'; payload: BoardMemberWithProfile }
+  | { type: 'UPDATE_MEMBER'; payload: BoardMemberWithProfile }
+  | { type: 'REMOVE_MEMBER'; payload: { memberId: string } }
   | { type: 'SYNC_STATE'; payload: BoardState }
   | { type: 'UPDATE_BOARD'; payload: Partial<Board> & { id: string } };

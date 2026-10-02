@@ -318,6 +318,33 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
       return { ...state, columns };
     }
 
+    case 'ADD_MEMBER': {
+      // Idempotent by id: a resync may already hold this member, and its copy is
+      // at least as fresh.
+      if (state.members.some((member) => member.id === action.payload.id)) return state;
+      return { ...state, members: [...state.members, action.payload] };
+    }
+
+    case 'UPDATE_MEMBER': {
+      const updated = action.payload;
+      const existing = state.members.find((member) => member.id === updated.id);
+      // Absent: a resync already removed them, so don't bring them back. Same row:
+      // the echo beat this response, so keep the reference and skip the re-render.
+      if (!existing || isSameMember(existing, updated)) return state;
+      return {
+        ...state,
+        members: state.members.map((member) => (member.id === updated.id ? updated : member)),
+      };
+    }
+
+    case 'REMOVE_MEMBER': {
+      if (!state.members.some((member) => member.id === action.payload.memberId)) return state;
+      return {
+        ...state,
+        members: state.members.filter((member) => member.id !== action.payload.memberId),
+      };
+    }
+
     case 'UPDATE_BOARD':
       return state; // Board metadata lives in the parent board prop
 

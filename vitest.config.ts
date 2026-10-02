@@ -8,6 +8,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./test/setup.ts'],
+    // Must stay well above `asyncUtilTimeout` in test/setup.ts (5000 ms). If the two
+    // are equal, a failing `waitFor`/`findBy*` is killed by "Test timed out" before
+    // it can throw, and the run never shows the assertion diff.
+    testTimeout: 10_000,
     // App code lives at the repo root (app/, components/, lib/, hooks/, contexts/),
     // so tests may live anywhere except build/vendor output.
     include: ['**/*.{test,spec}.{ts,tsx}'],
