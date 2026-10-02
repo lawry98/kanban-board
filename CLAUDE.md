@@ -101,6 +101,8 @@ pnpm prisma format          # Format schema.prisma
 
 There is **no seed script** — `pnpm prisma db seed` is not configured (see Known Gaps).
 
+`next.config.ts` sets `agentRules: false`: since Next 16.3, `next dev` otherwise writes a generated block into this file whenever it detects an AI agent. Keep it off.
+
 ---
 
 ## Code Style & Conventions

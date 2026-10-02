@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Next 16: top-level option (moved out of `experimental` in v15.5+).
   typedRoutes: true,
+  // Next 16.3+: otherwise `next dev` upserts a generated block into CLAUDE.md whenever it
+  // detects an AI agent. CLAUDE.md is hand-maintained (see its header), so opt out.
+  agentRules: false,
   images: {
     remotePatterns: [
       // Supabase Storage public objects (avatars, attachments).
