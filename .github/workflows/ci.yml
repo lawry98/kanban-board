@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Typecheck, lint, format, test
+    name: Typecheck, lint, format, test, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -42,10 +42,8 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      # TODO: add `--max-warnings=0` once the 6 existing `react/no-array-index-key`
-      # warnings are cleared. Enabling it today would make CI red on day one.
       - name: Lint
-        run: pnpm lint
+        run: pnpm lint --max-warnings=0
 
       - name: Format check
         run: pnpm format:check
@@ -53,3 +51,15 @@ jobs:
       # `pnpm test` is `vitest run` (single pass, no watch).
       - name: Test
         run: pnpm test
+
+      # Catches what the steps above can't: typed routes (`tsc` alone sees `Route` as a
+      # plain string without `.next/types`), the proxy matcher, `next/font` fetching and
+      # next.config validation. Placeholders only — `lib/env.ts` validates on import, and
+      # nothing connects to the database at build time.
+      - name: Build
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:6543/postgres?pgbouncer=true
+          DIRECT_URL: postgresql://user:pass@localhost:5432/postgres
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+        run: pnpm build
