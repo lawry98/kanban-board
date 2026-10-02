@@ -194,7 +194,8 @@ model Task {
   position    Float
   priority    Priority  @default(NONE)
   labels      String[]
-  dueDate     DateTime? @map("due_date")
+  // A calendar day, not an instant: Prisma reads it as UTC midnight. See lib/dates.ts.
+  dueDate     DateTime? @map("due_date") @db.Date
   assigneeId  String?   @map("assignee_id")
   // Nullable + SetNull: deleting a profile must not destroy tasks that user
   // created on other people's boards. NULL means "created by a deleted user".

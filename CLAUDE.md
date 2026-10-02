@@ -46,18 +46,20 @@ app/                              # Next.js App Router
 ├── layout.tsx · page.tsx         # Root layout + landing page
 components/
 ├── ui/                           # shadcn/ui + Magic UI primitives (generated — do not edit)
-├── board/                        # Board feature: column, task-card, task-detail-dialog,
+├── board/                        # Board feature: column, task-card, task-due-date, task-detail-dialog,
 │                                 #   board-header, activity-feed, add-column-button, create-board-dialog
 ├── landing/                      # Marketing sections
 └── layout/                       # navbar, user-menu
 contexts/board-context.tsx        # Board state: reducer + provider (exports `boardReducer`)
 hooks/
 ├── use-realtime.ts               # Supabase Realtime subscription + resync
+├── use-today.ts                  # Viewer's local calendar day (null during SSR), rolls over at midnight
 └── use-optimistic-update.ts      # Optimistic-update helper (exported; not yet wired in — see Known Gaps)
 lib/
 ├── prisma.ts                     # Singleton Prisma client (PrismaPg adapter, SSL + pool config)
 ├── db-tls.ts                     # DB TLS policy + bundled Supabase Root 2021 CA
 ├── env.ts                        # Zod-validated environment variables
+├── dates.ts                      # Due-date (calendar day) parse/format/isOverdue — pure, no I/O
 ├── auth/require-access.ts        # Authorization guards + ActionResult + toActionError + logActivity
 ├── analytics/events.ts           # Closed AnalyticsEventInput union + dedupe-key builders (no I/O)
 ├── analytics/track.ts            # Server-only best-effort event emitter (never throws)
@@ -215,6 +217,7 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 - `schema.prisma` is the single source of truth. `@map`/`@@map` keep models PascalCase / tables snake_case.
 - `createdAt`/`updatedAt` on every model where meaningful; explicit `@relation`; `@@index` on FKs and on `(parentId, position)` composites used for ordering.
 - **`position` is `Float`** (fractional ordering): a move writes the midpoint between neighbours — a single-row update, no column-wide renumber. After ~50 repeated bisections into the same gap a rebalance would be needed; not yet implemented (fine at current scale).
+- **`dueDate` is `@db.Date`** — a calendar day, not an instant. Clients send it as `YYYY-MM-DD` (`z.iso.date()`); Prisma models it as a `Date` at UTC midnight, which is what reaches the client, so go through `lib/dates.ts`: `parseCalendarDate` to write, `formatCalendarDate`/`formatDueDate` to read. Never `format(new Date(task.dueDate))` (local time shows the previous day west of UTC), and never compute "today" during render — `useToday()` is the viewer's local day and is `null` on the server.
 - Migrations: `pnpm prisma migrate dev --name <descriptive-name>`. **Never edit an applied migration** — add a new one. Supabase-specific DDL (RLS, triggers, publication, `REPLICA IDENTITY`) is hand-written raw SQL in the migration.
 
 ### Realtime
@@ -351,7 +354,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **No seed script** — `pnpm prisma db seed` is unconfigured; a fresh DB comes up empty.
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, and the DB TLS policy are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, the DB TLS policy, and due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`) are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.

@@ -2,11 +2,10 @@
 
 import { memo } from 'react';
 import { Draggable } from '@hello-pangea/dnd';
-import { formatDistanceToNow } from 'date-fns';
-import { Clock, AlertCircle } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { TaskDueDate } from '@/components/board/task-due-date';
 import { cn } from '@/lib/utils';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@/lib/constants';
 import { useBoardContext } from '@/contexts/board-context';
@@ -23,7 +22,6 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
   // live membership, so a demotion disables dragging without a reload. Consuming
   // context here bypasses React.memo for role changes, which is what we want.
   const { canEdit } = useBoardContext();
-  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
   const assigneeName = task.assignee?.fullName ?? undefined;
   const assigneeInitials = assigneeName
     ?.split(' ')
@@ -81,19 +79,7 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
           {/* Footer: due date + assignee */}
           {(task.dueDate || task.assignee) && (
             <div className="mt-2 flex items-center justify-between border-t pt-2">
-              {task.dueDate ? (
-                <div
-                  className={cn(
-                    'flex items-center gap-1 text-xs',
-                    isOverdue ? 'text-destructive' : 'text-muted-foreground',
-                  )}
-                >
-                  {isOverdue ? <AlertCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                  <span>{formatDistanceToNow(new Date(task.dueDate), { addSuffix: true })}</span>
-                </div>
-              ) : (
-                <span />
-              )}
+              {task.dueDate ? <TaskDueDate dueDate={task.dueDate} /> : <span />}
 
               {task.assignee && (
                 <Avatar className="h-5 w-5">

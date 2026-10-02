@@ -16,15 +16,12 @@ const descriptionSchema = z
   .max(10_000, 'Description must be 10000 characters or less');
 
 /**
- * Must parse to a real instant — `z.string()` let `'garbage'` through, which became an
- * Invalid Date and surfaced as a raw Prisma error. Accepts both `yyyy-MM-dd` (what the
- * date input emits) and full ISO datetimes.
+ * A calendar day, `YYYY-MM-DD` only (what `<input type="date">` emits), and a real one:
+ * 2026-02-30 is rejected rather than rolled over. Datetimes are rejected too — an instant
+ * falls on different days in different time zones, which is how due dates drifted.
+ * See `lib/dates.ts`.
  */
-const dueDateSchema = z
-  .string()
-  .trim()
-  .max(40)
-  .refine((value) => !Number.isNaN(Date.parse(value)), 'Enter a valid date');
+const dueDateSchema = z.iso.date({ error: 'Enter a valid date' });
 
 const labelsSchema = z
   .array(
