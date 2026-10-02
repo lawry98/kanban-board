@@ -165,6 +165,9 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
 
     case 'ADD_TASK': {
       const task = action.payload;
+      // Idempotent by id, in any column (a collaborator may have moved it): a
+      // resync may already hold this task, and its copy is at least as fresh.
+      if (state.columns.some((col) => col.tasks.some((t) => t.id === task.id))) return state;
       return {
         ...state,
         columns: state.columns.map((col) =>
@@ -284,6 +287,9 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
     }
 
     case 'ADD_COLUMN': {
+      // Idempotent by id: a resync may already hold this column, and its copy is
+      // at least as fresh.
+      if (state.columns.some((col) => col.id === action.payload.id)) return state;
       return { ...state, columns: [...state.columns, action.payload] };
     }
 
