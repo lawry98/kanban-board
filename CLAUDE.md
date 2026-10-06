@@ -281,7 +281,7 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 - Primitives in `components/ui/` are generated — **do not edit them**; extend from elsewhere. They are excluded from lint/format.
 - Always merge classes with `cn()` (`@/lib/utils`); use `cva` for variants.
 - Mobile-first; `dark:` variants; avoid arbitrary values (`[123px]`) unless there's no token.
-- **Keyboard + screen reader:** every control is reachable by Tab and has an accessible name (tests query `getByRole(…, { name })`). Cards: Enter opens (everyone), Space drags (editors) / opens (viewers). Drag announcements come from `lib/drag-announcements.ts` — never let dnd read raw ids.
+- **Keyboard + screen reader:** a new or changed control must be reachable by Tab and have an accessible name (tests query `getByRole(…, { name })`). Cards: Enter opens (everyone), Space drags (editors) / opens (viewers). Drag announcements come from `lib/drag-announcements.ts` — never let dnd read raw ids.
 
 ---
 

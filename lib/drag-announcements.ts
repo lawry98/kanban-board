@@ -19,7 +19,7 @@ function taskTitle(columns: ColumnWithTasks[], taskId: string): string {
     const task = column.tasks.find((t) => t.id === taskId);
     if (task) return task.title;
   }
-  return 'The task';
+  return 'the task';
 }
 
 /** `columns` is pre-move state: a card arriving from another column adds a slot. */

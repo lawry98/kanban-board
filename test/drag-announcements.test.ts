@@ -11,6 +11,13 @@ import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
 
 const EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
+// UUID-shaped, as in the real app: a leak of any of them is unmistakable.
+const TODO = '11111111-1111-4111-8111-111111111111';
+const DONE = '22222222-2222-4222-8222-222222222222';
+const T1 = '33333333-3333-4333-8333-333333333331';
+const T2 = '33333333-3333-4333-8333-333333333332';
+const T3 = '33333333-3333-4333-8333-333333333333';
+
 function task(id: string, columnId: string, title: string): TaskWithAssignee {
   return {
     id,
@@ -33,32 +40,32 @@ function task(id: string, columnId: string, title: string): TaskWithAssignee {
 
 const COLUMNS: ColumnWithTasks[] = [
   {
-    id: 'todo',
+    id: TODO,
     boardId: 'b',
     title: 'To do',
     color: null,
     position: 1,
     createdAt: EPOCH,
     updatedAt: EPOCH,
-    tasks: [task('t1', 'todo', 'Write launch post'), task('t2', 'todo', 'Book venue')],
+    tasks: [task(T1, TODO, 'Write launch post'), task(T2, TODO, 'Book venue')],
   },
   {
-    id: 'done',
+    id: DONE,
     boardId: 'b',
     title: 'Done',
     color: null,
     position: 2,
     createdAt: EPOCH,
     updatedAt: EPOCH,
-    tasks: [task('t3', 'done', 'Pick date')],
+    tasks: [task(T3, DONE, 'Pick date')],
   },
 ];
 
 const base = {
-  draggableId: 't1',
+  draggableId: T1,
   type: 'DEFAULT',
   mode: 'SNAP',
-  source: { droppableId: 'todo', index: 0 },
+  source: { droppableId: TODO, index: 0 },
 } as const;
 
 describe('drag announcements', () => {
@@ -71,7 +78,7 @@ describe('drag announcements', () => {
   it('counts the extra slot when moving into another column', () => {
     const update = {
       ...base,
-      destination: { droppableId: 'done', index: 1 },
+      destination: { droppableId: DONE, index: 1 },
       combine: null,
     } as DragUpdate;
     expect(announceDragUpdate(update, COLUMNS)).toBe(
@@ -82,7 +89,7 @@ describe('drag announcements', () => {
   it('does not count an extra slot within the same column', () => {
     const update = {
       ...base,
-      destination: { droppableId: 'todo', index: 1 },
+      destination: { droppableId: TODO, index: 1 },
       combine: null,
     } as DragUpdate;
     expect(announceDragUpdate(update, COLUMNS)).toBe(
@@ -98,7 +105,7 @@ describe('drag announcements', () => {
   it('confirms the drop', () => {
     const result = {
       ...base,
-      destination: { droppableId: 'done', index: 0 },
+      destination: { droppableId: DONE, index: 0 },
       combine: null,
       reason: 'DROP',
     } as DropResult;
@@ -122,17 +129,37 @@ describe('drag announcements', () => {
   });
 
   it('never reads out ids', () => {
-    const update = {
+    const moved = {
       ...base,
-      destination: { droppableId: 'done', index: 0 },
+      destination: { droppableId: DONE, index: 0 },
       combine: null,
     } as DragUpdate;
-    for (const message of [
+    const messages = [
       announceDragStart(base as DragStart, COLUMNS),
-      announceDragUpdate(update, COLUMNS),
-    ]) {
-      expect(message).not.toMatch(/\b(todo|done|t1)\b/);
+      announceDragUpdate(moved, COLUMNS),
+      announceDragUpdate({ ...moved, destination: null }, COLUMNS),
+      announceDragEnd({ ...moved, reason: 'DROP' } as DropResult, COLUMNS),
+      announceDragEnd({ ...moved, destination: null, reason: 'CANCEL' } as DropResult, COLUMNS),
+      announceDragEnd({ ...moved, destination: null, reason: 'DROP' } as DropResult, COLUMNS),
+    ];
+    for (const message of messages) {
+      for (const id of [TODO, DONE, T1, T2, T3]) expect(message).not.toContain(id);
     }
+  });
+
+  it('falls back to neutral wording when the task or column is gone', () => {
+    const gone = { ...base, draggableId: 'removed-task' } as DragStart;
+    expect(announceDragStart(gone, COLUMNS)).toBe(
+      'Picked up the task. It is at position 1 of 2 in the To do column.',
+    );
+    const update = {
+      ...base,
+      destination: { droppableId: 'removed-column', index: 0 },
+      combine: null,
+    } as DragUpdate;
+    expect(announceDragUpdate(update, COLUMNS)).toBe(
+      'Moved to position 1 of 1 in the unknown column.',
+    );
   });
 
   it('tells keyboard users Enter opens and Space drags', () => {
