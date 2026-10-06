@@ -337,6 +337,20 @@ describe('Column delete confirm returns focus', () => {
     expect(deleteColumn).not.toHaveBeenCalled();
   });
 
+  it("goes back to the column's menu button when the confirm is dismissed with Escape", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    await openDeleteConfirm(user, 'To do');
+    await user.keyboard('{Escape}');
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'To do column actions' })).toHaveFocus(),
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(deleteColumn).not.toHaveBeenCalled();
+  });
+
   it("moves to the next column's menu button after a delete", async () => {
     const user = userEvent.setup();
     await renderBoard();

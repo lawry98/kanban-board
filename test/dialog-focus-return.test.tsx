@@ -46,12 +46,12 @@ function makeTask(id: string, title: string): TaskWithAssignee {
 const TASK = makeTask('11111111-1111-4111-8111-111111111111', 'Write launch post');
 const NEXT = makeTask('55555555-5555-4555-8555-555555555555', 'Fix login bug');
 
-function mockBoard(tasks: TaskWithAssignee[]) {
+function mockBoard(tasks: TaskWithAssignee[], canEdit = true) {
   const column = { id: COLUMN_ID, title: 'To do', tasks } as unknown as ColumnWithTasks;
   vi.mocked(useBoardContext).mockReturnValue({
     state: { columns: [column], members: [] },
     dispatch: vi.fn(),
-    canEdit: true,
+    canEdit,
   } as unknown as ReturnType<typeof useBoardContext>);
 }
 
@@ -81,8 +81,8 @@ function Board({ tasks, cardKey = 'a' }: BoardProps) {
   );
 }
 
-function renderBoard(tasks: TaskWithAssignee[] = [TASK, NEXT]) {
-  mockBoard(tasks);
+function renderBoard(tasks: TaskWithAssignee[] = [TASK, NEXT], canEdit = true) {
+  mockBoard(tasks, canEdit);
   const user = userEvent.setup();
   const view = render(<Board tasks={tasks} />);
   return { user, ...view };
@@ -116,6 +116,16 @@ describe('TaskDetailDialog returns focus', () => {
   it('to the card on Escape', async () => {
     const { user } = renderBoard();
     await openWithKeyboard(user, TASK.title);
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(document.getElementById(taskCardId(TASK.id))).toHaveFocus());
+  });
+
+  it("to a viewer's card on Escape", async () => {
+    const { user } = renderBoard([TASK, NEXT], false);
+    await openWithKeyboard(user, TASK.title);
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
 
     await user.keyboard('{Escape}');
 

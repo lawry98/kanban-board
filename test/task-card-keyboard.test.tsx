@@ -7,6 +7,7 @@ vi.mock('@/contexts/board-context', () => ({ useBoardContext: vi.fn() }));
 
 import { TaskCard } from '@/components/board/task-card';
 import { useBoardContext } from '@/contexts/board-context';
+import { taskCardId } from '@/lib/dom-ids';
 import type { TaskWithAssignee } from '@/types';
 
 const USER_ID = '44444444-4444-4444-8444-444444444444';
@@ -67,6 +68,11 @@ describe.each([
     await user.keyboard('{Enter}');
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledWith(TASK);
+  });
+
+  it('carries the id a closing task dialog returns focus to', () => {
+    const { card } = renderCard(canEdit);
+    expect(card).toHaveAttribute('id', taskCardId(TASK.id));
   });
 
   it('is named by its title and described by its details', () => {
