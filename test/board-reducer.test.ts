@@ -52,6 +52,7 @@ function makeColumn(id: string, taskIds: string[]): ColumnWithTasks {
 
 function makeState(): BoardState {
   return {
+    meta: { title: 'Board', description: null },
     columns: [makeColumn('todo', ['t1', 't2', 't3']), makeColumn('done', ['d1'])],
     members: [],
   };
@@ -89,7 +90,7 @@ function layout(state: BoardState): Record<string, string[]> {
 
 describe('boardReducer', () => {
   it('SYNC_STATE adopts the server snapshot', () => {
-    const next: BoardState = { columns: [makeColumn('only', ['x1'])], members: [] };
+    const next: BoardState = { ...makeState(), columns: [makeColumn('only', ['x1'])] };
 
     const result = boardReducer(makeState(), { type: 'SYNC_STATE', payload: next });
 
@@ -104,6 +105,50 @@ describe('boardReducer', () => {
     const result = boardReducer(state, { type: 'SYNC_STATE', payload: makeState() });
 
     expect(result).toBe(state);
+  });
+
+  it("SYNC_STATE adopts a renamed board's metadata", () => {
+    const state = makeState();
+
+    const result = boardReducer(state, {
+      type: 'SYNC_STATE',
+      payload: { ...makeState(), meta: { title: 'Renamed', description: null } },
+    });
+
+    expect(result.meta.title).toBe('Renamed');
+    // Only the metadata moved; the memoized columns keep their identity.
+    expect(result.columns).toBe(state.columns);
+    expect(result.members).toBe(state.members);
+  });
+
+  it('SYNC_STATE keeps the meta reference when title and description are unchanged', () => {
+    const state = makeState();
+
+    const result = boardReducer(state, {
+      type: 'SYNC_STATE',
+      payload: { ...makeState(), meta: { title: 'Board', description: null } },
+    });
+
+    expect(result.meta).toBe(state.meta);
+    expect(result).toBe(state);
+  });
+
+  it('UPDATE_BOARD merges a title change and leaves columns and members untouched', () => {
+    const state = makeState();
+
+    const result = boardReducer(state, { type: 'UPDATE_BOARD', payload: { title: 'Roadmap' } });
+
+    expect(result.meta).toEqual({ title: 'Roadmap', description: null });
+    expect(result.columns).toBe(state.columns);
+    expect(result.members).toBe(state.members);
+    expect(state.meta.title).toBe('Board');
+  });
+
+  it('UPDATE_BOARD is a no-op when nothing changes', () => {
+    const state = makeState();
+
+    expect(boardReducer(state, { type: 'UPDATE_BOARD', payload: { title: 'Board' } })).toBe(state);
+    expect(boardReducer(state, { type: 'UPDATE_BOARD', payload: {} })).toBe(state);
   });
 
   it('ADD_TASK appends to the target column and leaves other columns untouched', () => {
@@ -123,8 +168,8 @@ describe('boardReducer', () => {
     const synced = boardReducer(makeState(), {
       type: 'SYNC_STATE',
       payload: {
+        ...makeState(),
         columns: [makeColumn('todo', ['t1', 't2', 't3']), makeColumn('done', ['d1', 't4'])],
-        members: [],
       },
     });
 
@@ -218,12 +263,12 @@ describe('boardReducer', () => {
       payload: makeColumn('review', []),
     });
     const echo: BoardState = {
+      ...makeState(),
       columns: [
         makeColumn('todo', ['t1', 't2', 't3']),
         makeColumn('done', ['d1']),
         makeColumn('review', []),
       ],
-      members: [],
     };
 
     const synced = boardReducer(added, { type: 'SYNC_STATE', payload: echo });
@@ -237,12 +282,12 @@ describe('boardReducer', () => {
     const synced = boardReducer(makeState(), {
       type: 'SYNC_STATE',
       payload: {
+        ...makeState(),
         columns: [
           makeColumn('todo', ['t1', 't2', 't3']),
           makeColumn('done', ['d1']),
           makeColumn('review', []),
         ],
-        members: [],
       },
     });
 

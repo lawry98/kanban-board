@@ -124,7 +124,11 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
 
     dispatch({
       type: 'SYNC_STATE',
-      payload: { columns: data.columns, members: data.members },
+      payload: {
+        meta: { title: data.title, description: data.description },
+        columns: data.columns,
+        members: data.members,
+      },
     });
   }, [boardId, dispatch, router]);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Activity, MoreHorizontal, Share2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -25,30 +25,50 @@ interface BoardHeaderProps {
 }
 
 export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
-  const { state, board, isOwner, canEdit } = useBoardContext();
+  const { state, dispatch, board, isOwner, canEdit } = useBoardContext();
+  // The live title lives in reducer state; `board` is the mount-time snapshot, so
+  // only its `id` is read from it.
+  const title = state.meta.title;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleValue, setTitleValue] = useState(board.title);
+  const [titleValue, setTitleValue] = useState(title);
+  // Escape sets this before blurring so the shared blur handler skips the save.
+  const cancelEditRef = useRef(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
 
-  async function handleTitleSave() {
-    if (!titleValue.trim() || titleValue === board.title) {
-      setIsEditingTitle(false);
-      setTitleValue(board.title);
+  function startEditing() {
+    setTitleValue(title);
+    setIsEditingTitle(true);
+  }
+
+  async function saveTitle(raw: string) {
+    const next = raw.trim();
+    if (!next || next === title) return;
+
+    // Snapshot at call time; revert only this field so a concurrent resync of
+    // columns/members is not rolled back with it.
+    const previous = title;
+    dispatch({ type: 'UPDATE_BOARD', payload: { title: next } });
+    const result = await updateBoard(board.id, { title: next });
+    if ('error' in result) {
+      dispatch({ type: 'UPDATE_BOARD', payload: { title: previous } });
+      toast.error(result.error);
       return;
     }
+    dispatch({ type: 'UPDATE_BOARD', payload: { title: result.data.title } });
+    toast.success('Board updated');
+  }
 
-    const result = await updateBoard(board.id, { title: titleValue.trim() });
-    if (result.error) {
-      toast.error(result.error);
-      setTitleValue(board.title);
-    } else {
-      toast.success('Board updated');
-    }
+  // Blur is the single save path: Enter blurs the input, so Enter + blur cannot
+  // submit twice, and Escape cancels via the ref instead of saving on blur.
+  function handleTitleBlur() {
+    const cancelled = cancelEditRef.current;
+    cancelEditRef.current = false;
     setIsEditingTitle(false);
+    if (!cancelled) void saveTitle(titleValue);
   }
 
   async function handleDeleteBoard() {
@@ -64,23 +84,31 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           <Input
             value={titleValue}
             onChange={(e) => setTitleValue(e.target.value)}
-            onBlur={handleTitleSave}
+            onBlur={handleTitleBlur}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleTitleSave();
+              if (e.key === 'Enter') e.currentTarget.blur();
               if (e.key === 'Escape') {
-                setIsEditingTitle(false);
-                setTitleValue(board.title);
+                cancelEditRef.current = true;
+                e.currentTarget.blur();
               }
             }}
             className="h-8 w-64 px-1 text-xl font-semibold"
             autoFocus
           />
         ) : (
-          <h1
-            className={`text-xl font-semibold tracking-tight ${canEdit ? 'cursor-pointer hover:opacity-70' : ''}`}
-            onClick={() => canEdit && setIsEditingTitle(true)}
-          >
-            {board.title}
+          <h1 className="text-xl font-semibold tracking-tight">
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={startEditing}
+                title={title}
+                className="cursor-pointer text-left hover:opacity-70"
+              >
+                {title}
+              </button>
+            ) : (
+              title
+            )}
           </h1>
         )}
         <p className="text-muted-foreground text-xs">
@@ -174,9 +202,8 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           title="Delete this board?"
           description={
             <>
-              <span className="text-foreground font-medium">{board.title}</span> and all its
-              columns, tasks, members, and activity will be permanently deleted. This cannot be
-              undone.
+              <span className="text-foreground font-medium">{title}</span> and all its columns,
+              tasks, members, and activity will be permanently deleted. This cannot be undone.
             </>
           }
           confirmLabel="Delete board"

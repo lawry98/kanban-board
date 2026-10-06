@@ -210,7 +210,9 @@ function renderRealtime(options?: { strict?: boolean }) {
 }
 
 function boardData(id = BOARD_ID) {
-  return { data: { id, title: 'QA – Realtime auth', columns: [], members: [] } };
+  return {
+    data: { id, title: 'QA – Realtime auth', description: null, columns: [], members: [] },
+  };
 }
 
 beforeEach(() => {
@@ -511,7 +513,11 @@ describe('useRealtime — sync', () => {
     expect(getBoardData).toHaveBeenCalledWith(BOARD_ID);
     expect(dispatch).toHaveBeenCalledWith({
       type: 'SYNC_STATE',
-      payload: { columns: [], members: [] },
+      payload: {
+        meta: { title: 'QA – Realtime auth', description: null },
+        columns: [],
+        members: [],
+      },
     });
   });
 
