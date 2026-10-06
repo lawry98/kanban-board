@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { DragDropContext, type DropResult } from '@hello-pangea/dnd';
+import { DragDropContext, type DropResult, type ResponderProvided } from '@hello-pangea/dnd';
 import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -12,6 +12,12 @@ import { Column } from '@/components/board/column';
 import { TaskDetailDialog } from '@/components/board/task-detail-dialog';
 import { BoardProvider, useBoardContext } from '@/contexts/board-context';
 import { useRealtime } from '@/hooks/use-realtime';
+import {
+  DRAG_HANDLE_INSTRUCTIONS,
+  announceDragEnd,
+  announceDragStart,
+  announceDragUpdate,
+} from '@/lib/drag-announcements';
 import { moveTask } from '@/app/actions/task-actions';
 import type { BoardWithDetails, TaskWithAssignee } from '@/types';
 
@@ -31,7 +37,10 @@ function BoardContent() {
 
   useRealtime(board.id, dispatch);
 
-  async function handleDragEnd(result: DropResult) {
+  async function handleDragEnd(result: DropResult, provided: ResponderProvided) {
+    // dnd only takes an announcement synchronously, so say it before any return or await.
+    provided.announce(announceDragEnd(result, state.columns));
+
     // Cards are isDragDisabled for viewers, so this shouldn't fire for them —
     // but guard anyway: a role change mid-drag must never optimistically move a
     // card only for the server to reject it.
@@ -112,7 +121,16 @@ function BoardContent() {
           supports one scroll parent per Droppable; a column that also scrolled would be
           nested (dev warning, and auto-scroll + keyboard moves stop tracking the board). */}
       <div className="flex-1 overflow-auto" data-board-scroll-container>
-        <DragDropContext onDragEnd={handleDragEnd}>
+        <DragDropContext
+          dragHandleUsageInstructions={DRAG_HANDLE_INSTRUCTIONS}
+          onDragStart={(start, provided) =>
+            provided.announce(announceDragStart(start, state.columns))
+          }
+          onDragUpdate={(update, provided) =>
+            provided.announce(announceDragUpdate(update, state.columns))
+          }
+          onDragEnd={handleDragEnd}
+        >
           {/* min-h-full + items-stretch: every list spans the board's full height, so
               wherever the board is scrolled, each column still shows a drop area (dnd
               clips a list to its scroll parent's viewport). w-max keeps the end padding. */}

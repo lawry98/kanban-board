@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 // BoardView pulls in the realtime hook (Supabase), the header (another session's
 // component, which reaches server actions) and the server actions themselves.
@@ -110,5 +110,14 @@ describe('BoardView scroll structure', () => {
       expect(scrollers).toHaveLength(1);
       expect(scrollers[0]).toHaveAttribute('data-board-scroll-container');
     }
+  });
+});
+
+describe('BoardView drag instructions', () => {
+  it('tells an editor on a card that Enter opens it', () => {
+    renderBoard();
+    expect(screen.getByRole('button', { name: 'Write launch post' })).toHaveAccessibleDescription(
+      /Press Enter to open the task/,
+    );
   });
 });
