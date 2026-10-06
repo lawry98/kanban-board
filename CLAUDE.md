@@ -47,7 +47,8 @@ app/                              # Next.js App Router
 components/
 ├── ui/                           # shadcn/ui + Magic UI primitives (generated — do not edit)
 ├── board/                        # Board feature: column, task-card, task-due-date, task-detail-dialog,
-│                                 #   board-header, activity-feed, add-column-button, create-board-dialog
+│                                 #   board-header, activity-feed, add-column-button, create-board-dialog,
+│                                 #   confirm-dialog, members-dialog, share-board-dialog
 ├── landing/                      # Marketing sections
 └── layout/                       # navbar, user-menu, theme-toggle
 contexts/board-context.tsx        # Board state: reducer + provider (exports `boardReducer`)
@@ -61,6 +62,7 @@ lib/
 ├── env.ts                        # Zod-validated environment variables
 ├── dates.ts                      # Due-date (calendar day) parse/format/isOverdue — pure, no I/O
 ├── drag-announcements.ts         # Screen-reader drag messages + drag-handle instructions — pure, no I/O
+├── dom-ids.ts                    # Ids a closing dialog returns focus to (card, column menu) + focusById
 ├── auth/require-access.ts        # Authorization guards + ActionResult + toActionError + logActivity
 ├── analytics/events.ts           # Closed AnalyticsEventInput union + dedupe-key builders (no I/O)
 ├── analytics/track.ts            # Server-only best-effort event emitter (never throws)
@@ -281,7 +283,8 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 - Primitives in `components/ui/` are generated — **do not edit them**; extend from elsewhere. They are excluded from lint/format.
 - Always merge classes with `cn()` (`@/lib/utils`); use `cva` for variants.
 - Mobile-first; `dark:` variants; avoid arbitrary values (`[123px]`) unless there's no token.
-- **Keyboard + screen reader:** a new or changed control must be reachable by Tab and have an accessible name (tests query `getByRole(…, { name })`). Cards: Enter opens (everyone), Space drags (editors) / opens (viewers). Drag announcements come from `lib/drag-announcements.ts` — never let dnd read raw ids.
+- **Keyboard + screen reader:** a new or changed control must be reachable by Tab and have an accessible name (tests query `getByRole(…, { name })`). Cards: Enter opens (everyone), Space drags (editors) / opens on keyup (viewers). Drag announcements come from `lib/drag-announcements.ts` — never let dnd read raw ids.
+- **Dialog focus return:** a dialog opened without a `DialogTrigger` (from a card, a menu item, a confirm) must return focus in `onCloseAutoFocus`: `event.preventDefault()` then `focusById(...)` from `lib/dom-ids.ts`. Radix otherwise has no trigger to refocus and drops focus on `<body>`.
 
 ---
 
@@ -348,7 +351,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 7. Don't forget Realtime cleanup — every `subscribe()` needs its `removeChannel` in the effect cleanup.
 8. Don't edit `components/ui/**` or applied migrations; don't `'use client'` everything.
 9. Don't run git commands; don't commit `.env.local`.
-10. **One scroll container per column list.** The board's `overflow-auto` div (`board-view.tsx`) is every Droppable's only scroll parent. Don't wrap a list in `ScrollArea` or give a column `overflow-*`: @hello-pangea/dnd doesn't support nested scroll containers (auto-scroll and keyboard moves break; dev console warns on drag).
+10. **One scroll container per column list.** The board's `overflow-auto` div (`board-view.tsx`) is every Droppable's only scroll parent. Don't wrap a list in `ScrollArea` or give a column `overflow-*`: @hello-pangea/dnd doesn't support nested scroll containers (auto-scroll and keyboard moves break; dev console warns on drag). The container is `relative` so absolutely positioned descendants (e.g. `sr-only`) can't escape it and stretch the page.
 
 ---
 
@@ -357,7 +360,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **No seed script** — `pnpm prisma db seed` is unconfigured; a fresh DB comes up empty.
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), and keyboard/screen-reader behaviour (column menu, card keys, field names, scroll structure, drag announcements) are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), and keyboard/screen-reader behaviour (column menu, card keys, field names, scroll structure, drag announcements, dialog focus return) are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.

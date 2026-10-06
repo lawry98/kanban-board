@@ -2,7 +2,7 @@
 
 **Goal:** every board interaction works by keyboard alone and makes sense to a screen reader, before the public portfolio deploy.
 
-**Scope (files):** `components/board/column.tsx`, `components/board/task-card.tsx`, `components/board/task-detail-dialog.tsx`, `components/layout/navbar.tsx` (+ the `user-menu.tsx` trigger it renders, + a new `components/layout/theme-toggle.tsx`), `app/(dashboard)/boards/boards-client.tsx`, `app/(dashboard)/board/[boardId]/board-view.tsx`, a new pure `lib/drag-announcements.ts`, tests, `CLAUDE.md`. **Not** `board-header.tsx` (another session owns it), not `components/ui/**` (generated), no migrations.
+**Scope (files):** `components/board/column.tsx`, `components/board/task-card.tsx`, `components/board/task-detail-dialog.tsx`, `components/layout/navbar.tsx` (+ the `user-menu.tsx` trigger it renders, + a new `components/layout/theme-toggle.tsx`), `app/(dashboard)/boards/boards-client.tsx`, `app/(dashboard)/board/[boardId]/board-view.tsx` (+ its `loading.tsx`), `components/board/add-column-button.tsx`, `components/board/confirm-dialog.tsx`, `app/globals.css`, new pure `lib/drag-announcements.ts` and `lib/dom-ids.ts`, tests, `CLAUDE.md`. **Not** `board-header.tsx` (another session owns it), not `components/ui/**` (generated), no migrations.
 
 ## Findings that shaped the design (verified in installed source)
 
@@ -29,3 +29,5 @@
 9. **User menu trigger** gets `aria-label="Account menu"` (it's in the navbar; its current name is the user's initials).
 10. **Board cards on /boards:** link name = board title (`aria-labelledby`); role, task count and last update in an sr-only `aria-describedby` summary (the visible `NumberTicker` animates from 0, so it can't be the description).
 11. **Task dialog:** static `htmlFor`/`id` pairs (`task-*`), matching `create-board-dialog.tsx`. Remove-label button: `type="button"`, `aria-label="Remove label <name>"`.
+12. **Focus return:** dialogs opened without a `DialogTrigger` return focus in `onCloseAutoFocus` (`preventDefault()` + `focusById`, ids from `lib/dom-ids.ts`) to the card, or a neighbour/the column menu once it is deleted.
+13. **Focus ring:** the `--ring` token reaches ≥3:1 (light `oklch(0.26 0 0)`, dark `oklch(0.8 0 0)`), and an unlayered `@media (forced-colors: active) :focus-visible` outline covers forced colours, where box-shadow rings vanish and `outline-none` has no fallback.
