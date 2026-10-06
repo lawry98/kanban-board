@@ -36,23 +36,40 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  // Set by the menu's Rename item; the editor opens once the menu has finished closing.
+  const renameRequestedRef = useRef(false);
+  // True while the editor is closing. Moving focus off the input fires its blur, which
+  // must not save a second time (Enter) or save at all (Escape).
+  const closingTitleEditRef = useRef(false);
 
-  async function handleRenameColumn() {
-    if (!titleValue.trim() || titleValue === column.title) {
-      setIsEditingTitle(false);
-      setTitleValue(column.title);
+  async function handleRenameColumn({ restoreFocus = false } = {}) {
+    if (closingTitleEditRef.current) return;
+    const title = titleValue.trim();
+    if (!title || title === column.title) {
+      cancelRename({ restoreFocus });
       return;
     }
 
-    const result = await updateColumn(column.id, { title: titleValue.trim() });
+    closingTitleEditRef.current = true;
+    if (restoreFocus) menuTriggerRef.current?.focus();
+    const result = await updateColumn(column.id, { title });
+    closingTitleEditRef.current = false;
     if (result.error) {
       toast.error(result.error);
       setTitleValue(column.title);
     } else {
-      dispatch({ type: 'UPDATE_COLUMN', payload: { id: column.id, title: titleValue.trim() } });
+      dispatch({ type: 'UPDATE_COLUMN', payload: { id: column.id, title } });
     }
     setIsEditingTitle(false);
+  }
+
+  function cancelRename({ restoreFocus = false } = {}) {
+    closingTitleEditRef.current = true;
+    setIsEditingTitle(false);
+    setTitleValue(column.title);
+    if (restoreFocus) menuTriggerRef.current?.focus();
+    closingTitleEditRef.current = false;
   }
 
   async function handleDeleteColumn() {
@@ -98,16 +115,13 @@ export function Column({ column, onTaskClick }: ColumnProps) {
 
           {isEditingTitle && canEdit ? (
             <Input
-              ref={titleInputRef}
               value={titleValue}
               onChange={(e) => setTitleValue(e.target.value)}
-              onBlur={handleRenameColumn}
+              aria-label="Column name"
+              onBlur={() => handleRenameColumn()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRenameColumn();
-                if (e.key === 'Escape') {
-                  setIsEditingTitle(false);
-                  setTitleValue(column.title);
-                }
+                if (e.key === 'Enter') handleRenameColumn({ restoreFocus: true });
+                if (e.key === 'Escape') cancelRename({ restoreFocus: true });
               }}
               className="h-7 px-1 text-sm font-medium"
               autoFocus
@@ -129,15 +143,31 @@ export function Column({ column, onTaskClick }: ColumnProps) {
         {canEdit && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+              <Button
+                ref={menuTriggerRef}
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                aria-label={`${column.title} column actions`}
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              align="end"
+              onCloseAutoFocus={(event) => {
+                if (!renameRequestedRef.current) return;
+                renameRequestedRef.current = false;
+                // Open the editor only now: while the menu is open its focus trap pulls focus
+                // off the input, and on close Radix refocuses this trigger — either blur
+                // would end the edit before it starts.
+                event.preventDefault();
+                setIsEditingTitle(true);
+              }}
+            >
               <DropdownMenuItem
-                onClick={() => {
-                  setIsEditingTitle(true);
-                  setTimeout(() => titleInputRef.current?.focus(), 50);
+                onSelect={() => {
+                  renameRequestedRef.current = true;
                 }}
               >
                 <Pencil className="mr-2 h-4 w-4" />
@@ -199,6 +229,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
                   }
                 }}
                 placeholder="Task title…"
+                aria-label="Task title"
                 autoFocus
                 disabled={isCreatingTask}
               />
