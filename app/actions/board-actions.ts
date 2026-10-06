@@ -59,7 +59,7 @@ export async function createBoard(input: unknown): Promise<ActionResult<Board>> 
       action: 'BOARD_CREATED',
       entityType: 'board',
       entityId: board.id,
-      metadata: { boardTitle: board.title },
+      metadata: { title: board.title },
     });
 
     revalidatePath('/boards');
@@ -90,7 +90,7 @@ export async function updateBoard(boardId: string, input: unknown): Promise<Acti
       action: 'BOARD_UPDATED',
       entityType: 'board',
       entityId: id,
-      metadata: { fields: Object.keys(data), boardTitle: board.title },
+      metadata: { fields: Object.keys(data), title: board.title },
     });
 
     revalidatePath(`/board/${id}`);

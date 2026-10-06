@@ -29,7 +29,7 @@ function BoardContent() {
   // Drives the first-run coaching hint: a board with columns but no tasks yet.
   const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
 
-  useRealtime(board.id, dispatch);
+  const realtimeStatus = useRealtime(board.id, dispatch);
 
   async function handleDragEnd(result: DropResult) {
     // Cards are isDragDisabled for viewers, so this shouldn't fire for them —
@@ -84,7 +84,7 @@ function BoardContent() {
 
   return (
     <div className="flex h-[calc(100vh-56px)] flex-col overflow-hidden">
-      <BoardHeader onOpenActivity={() => setActivityOpen(true)} />
+      <BoardHeader realtimeStatus={realtimeStatus} onOpenActivity={() => setActivityOpen(true)} />
 
       {/* First-run coaching: only while the board has columns but no tasks, and only
           for members who can act on it (viewers cannot add tasks). Stateless — it

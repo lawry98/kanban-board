@@ -5,7 +5,8 @@ import { DotPattern } from '@/components/ui/dot-pattern';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
-  title: 'Sign In',
+  // A plain-string title would reset the root layout's template for every child page.
+  title: { default: 'Sign In', template: '%s | KanbanFlow' },
 };
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
