@@ -37,13 +37,16 @@ Code lives at the **repository root** — there is no `src/` directory. The `@/*
 
 ```
 app/                              # Next.js App Router
-├── (auth)/                       # Auth route group (login, register)
+├── (auth)/                       # Auth route group (login, register, forgot/reset password, auth-code-error);
+│                                 #   each page has its own layout.tsx that sets its title
 ├── (dashboard)/                  # Protected route group
 │   ├── board/[boardId]/          # Individual board view
 │   └── boards/                   # Board listing
 ├── actions/                      # Server Actions (auth, board, column, task, invitation, analytics)
 ├── auth/callback/route.ts        # OAuth code-exchange callback
 ├── layout.tsx · page.tsx         # Root layout + landing page
+├── error.tsx · global-error.tsx  # Error boundaries (both call Sentry.captureException)
+├── not-found.tsx                 # Root 404 (also what signed-in users get for unknown routes)
 components/
 ├── ui/                           # shadcn/ui + Magic UI primitives (generated — do not edit)
 ├── board/                        # Board feature: column, task-card, task-due-date, task-detail-dialog,
@@ -58,7 +61,8 @@ hooks/
 lib/
 ├── prisma.ts                     # Singleton Prisma client (PrismaPg adapter, SSL + pool config)
 ├── db-tls.ts                     # DB TLS policy + bundled Supabase Root 2021 CA
-├── env.ts                        # Zod-validated environment variables
+├── env.ts                        # Zod-validated environment variables (incl. optional Sentry DSNs)
+├── sentry-options.ts             # Sentry init options shared by server/edge/client (what is NOT collected)
 ├── dates.ts                      # Due-date (calendar day) parse/format/isOverdue — pure, no I/O
 ├── auth/require-access.ts        # Authorization guards + ActionResult + toActionError + logActivity
 ├── analytics/events.ts           # Closed AnalyticsEventInput union + dedupe-key builders (no I/O)
@@ -67,6 +71,10 @@ lib/
 ├── validations/{board,column,task,invitation,analytics}.ts   # Zod schemas
 ├── utils.ts · constants.ts
 proxy.ts                          # Next 16 middleware (renamed from middleware.ts): route protection
+instrumentation.ts                # Next register(): loads sentry.server/edge config; exports onRequestError
+instrumentation-client.ts         # Browser Sentry init (only when NEXT_PUBLIC_SENTRY_DSN is set)
+sentry.{server,edge}.config.ts    # Server/edge Sentry init (only when a DSN is set)
+scripts/db-seed.ts · scripts/seed/   # `pnpm db:seed` entry + demo-board data and insert-only seeder
 types/{board,index}.ts            # Shared types (Prisma-derived — see Types)
 prisma/{schema.prisma,migrations/,analytics/funnel.sql}   # funnel.sql is a hand-run read layer, not a migration
 test/setup.ts                     # Vitest setup (jest-dom)
@@ -99,9 +107,12 @@ pnpm prisma migrate dev     # Create + apply a migration in dev
 pnpm prisma migrate deploy  # Apply migrations in production
 pnpm prisma studio          # Prisma Studio GUI
 pnpm prisma format          # Format schema.prisma
+
+# Demo data (opt-in, inserts only — never updates or deletes)
+ALLOW_DEMO_SEED=1 pnpm db:seed --email <email>     # or --user-id <uuid>; user must already exist
 ```
 
-There is **no seed script** — `pnpm prisma db seed` is not configured (see Known Gaps).
+`pnpm db:seed` creates the "Demo — Website Launch" board (4 columns, 12 tasks) and is idempotent per user. The opt-in must be on the command line (it is checked before `.env.local` loads); the script prints the target DB host first, because a shell-exported `DATABASE_URL` beats `.env.local`. `pnpm prisma db seed` stays unconfigured — `pnpm db:seed` is the entry point.
 
 CI (`.github/workflows/ci.yml`) runs `prisma generate` → typecheck → `lint --max-warnings=0` → `format:check` → test → `build` (placeholder env). Any lint warning fails CI.
 
@@ -296,6 +307,7 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 
 - `try/catch` every async op. Server Actions return `toActionError(...)`; components surface `{ error }` via `sonner` toasts and must not treat a failed load as an empty state.
 - `console.error` for logging (the `no-console` rule allows `warn`/`error`). Never expose raw DB errors.
+- **Sentry** (`@sentry/nextjs`): `toActionError` reports unexpected errors via `Sentry.captureException` (tag `action: context`) and flushes with `after()`; `PublicError` and `ZodError` are expected outcomes and are not sent. `app/error.tsx` and `app/global-error.tsx` call `captureException`; uncaught server errors go through `onRequestError`. Everything is inert unless a DSN is set. Collection limits (no cookies, request bodies, user info or invite tokens) live in `lib/sentry-options.ts` — don't loosen them.
 
 ---
 
@@ -310,7 +322,13 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_APP_URL=
 # SUPABASE_CA_CERT=        # optional: PEM CA replacing the bundled Supabase root (lib/db-tls.ts)
+# NEXT_PUBLIC_SENTRY_DSN=  # optional: browser DSN, inlined at build time (change → redeploy)
+# SENTRY_DSN=              # optional: server/edge DSN; falls back to NEXT_PUBLIC_SENTRY_DSN
+# SENTRY_AUTH_TOKEN=       # optional, build-time only: enables source-map upload (never NEXT_PUBLIC_)
+# SENTRY_ORG= · SENTRY_PROJECT=   # optional, build-time only: upload target
 ```
+
+`NEXT_PUBLIC_APP_URL` is declared in `.env.example` but no code reads it (auth redirects and invite links use `window.location.origin`). The two DSNs are validated in `lib/env.ts`; `SENTRY_AUTH_TOKEN`/`ORG`/`PROJECT` are read by `next.config.ts` directly. Upload failures warn and never fail the build.
 
 Client vars must be `NEXT_PUBLIC_`; server secrets must not be. `.env.local` is gitignored; `.env.example` is committed.
 
@@ -351,10 +369,9 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 
 ## Known Gaps / Not Yet Done
 
-- **No seed script** — `pnpm prisma db seed` is unconfigured; a fresh DB comes up empty.
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, the DB TLS policy, and due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`) are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404/global-error pages and the auth page titles are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.
