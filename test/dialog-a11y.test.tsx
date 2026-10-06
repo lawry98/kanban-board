@@ -13,6 +13,11 @@ import { ActivityFeed } from '@/components/board/activity-feed';
 import { TaskDetailDialog } from '@/components/board/task-detail-dialog';
 import { getActivityLogs, updateTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import {
+  MAX_LABEL_LENGTH,
+  MAX_TASK_DESCRIPTION_LENGTH,
+  MAX_TASK_TITLE_LENGTH,
+} from '@/lib/constants';
 import type { MockInstance } from 'vitest';
 import type { TaskWithAssignee } from '@/types';
 
@@ -136,12 +141,18 @@ describe('TaskDetailDialog field names', () => {
     mockBoardContext(true);
     render(<TaskDetailDialog task={TASK} onClose={() => {}} />);
 
-    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveAttribute('maxlength', '255');
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveAttribute(
+      'maxlength',
+      String(MAX_TASK_TITLE_LENGTH),
+    );
     expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute(
       'maxlength',
-      '10000',
+      String(MAX_TASK_DESCRIPTION_LENGTH),
     );
-    expect(screen.getByRole('textbox', { name: 'Labels' })).toHaveAttribute('maxlength', '30');
+    expect(screen.getByRole('textbox', { name: 'Labels' })).toHaveAttribute(
+      'maxlength',
+      String(MAX_LABEL_LENGTH),
+    );
   });
 
   it('names each assignee once, without reading out the avatar initials', async () => {

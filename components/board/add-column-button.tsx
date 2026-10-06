@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { createColumn } from '@/app/actions/column-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import { MAX_COLUMN_TITLE_LENGTH } from '@/lib/constants';
 
 export function AddColumnButton() {
   const { board, dispatch } = useBoardContext();
@@ -82,7 +83,7 @@ export function AddColumnButton() {
           // Not `disabled`: that drops focus to <body>, and on a failure the user would
           // have to find their way back. The handler guards reentry.
           readOnly={isLoading}
-          maxLength={100}
+          maxLength={MAX_COLUMN_TITLE_LENGTH}
         />
         <div className="flex gap-2">
           <Button size="sm" onClick={handleSubmit} disabled={isLoading || !title.trim()}>

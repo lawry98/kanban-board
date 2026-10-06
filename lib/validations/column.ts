@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-import { MAX_COLUMNS } from '@/lib/constants';
+import { MAX_COLUMN_TITLE_LENGTH, MAX_COLUMNS } from '@/lib/constants';
 import { uuidSchema } from '@/lib/validations/board';
 
 const titleSchema = z
   .string()
   .trim()
   .min(1, 'Title is required')
-  .max(100, 'Title must be 100 characters or less');
+  .max(MAX_COLUMN_TITLE_LENGTH, `Title must be ${MAX_COLUMN_TITLE_LENGTH} characters or less`);
 
 /** Rendered into `style={{ backgroundColor }}` — must be a literal hex colour, nothing else. */
 const colorSchema = z

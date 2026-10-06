@@ -20,6 +20,7 @@ import { TaskCard } from '@/components/board/task-card';
 import { updateColumn, deleteColumn } from '@/app/actions/column-actions';
 import { createTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import { MAX_COLUMN_TITLE_LENGTH, MAX_TASK_TITLE_LENGTH } from '@/lib/constants';
 import { columnActionsId, focusById } from '@/lib/dom-ids';
 import { cn } from '@/lib/utils';
 import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
@@ -170,7 +171,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               value={titleValue}
               onChange={(e) => setTitleValue(e.target.value)}
               aria-label="Column name"
-              maxLength={100}
+              maxLength={MAX_COLUMN_TITLE_LENGTH}
               onBlur={() => handleRenameColumn()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleRenameColumn({ restoreFocus: true });
@@ -284,7 +285,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
                       }}
                       placeholder="Task title…"
                       aria-label="Task title"
-                      maxLength={255}
+                      maxLength={MAX_TASK_TITLE_LENGTH}
                       autoFocus
                       // Not `disabled`: that drops focus to <body>, and on a failure the
                       // user would have to find their way back. The handler guards reentry.

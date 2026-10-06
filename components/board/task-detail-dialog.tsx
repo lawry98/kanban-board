@@ -29,7 +29,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { updateTask, deleteTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
-import { PRIORITY_LABELS } from '@/lib/constants';
+import {
+  MAX_LABEL_LENGTH,
+  MAX_TASK_DESCRIPTION_LENGTH,
+  MAX_TASK_TITLE_LENGTH,
+  PRIORITY_LABELS,
+} from '@/lib/constants';
 import { formatCalendarDate } from '@/lib/dates';
 import { columnActionsId, focusById, taskCardId } from '@/lib/dom-ids';
 import type { UpdateTaskInput } from '@/lib/validations/task';
@@ -193,7 +198,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
               }}
               disabled={!canEdit}
               required
-              maxLength={255}
+              maxLength={MAX_TASK_TITLE_LENGTH}
               aria-invalid={titleError || undefined}
               aria-describedby={titleError ? 'task-title-error' : undefined}
               className="text-base font-medium"
@@ -214,7 +219,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
               onChange={(e) => setDescription(e.target.value)}
               disabled={!canEdit}
               rows={3}
-              maxLength={10000}
+              maxLength={MAX_TASK_DESCRIPTION_LENGTH}
               placeholder="Add a description…"
             />
           </div>
@@ -339,7 +344,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                     }
                   }}
                   placeholder="Add a label…"
-                  maxLength={30}
+                  maxLength={MAX_LABEL_LENGTH}
                   className="h-8"
                 />
                 <Button

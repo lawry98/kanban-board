@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+import {
+  MAX_LABEL_LENGTH,
+  MAX_TASK_DESCRIPTION_LENGTH,
+  MAX_TASK_TITLE_LENGTH,
+} from '@/lib/constants';
 import { uuidSchema } from '@/lib/validations/board';
 
 const priorityEnum = z.enum(['NONE', 'LOW', 'MEDIUM', 'HIGH', 'URGENT']);
@@ -8,12 +13,15 @@ const titleSchema = z
   .string()
   .trim()
   .min(1, 'Title is required')
-  .max(255, 'Title must be 255 characters or less');
+  .max(MAX_TASK_TITLE_LENGTH, `Title must be ${MAX_TASK_TITLE_LENGTH} characters or less`);
 
 const descriptionSchema = z
   .string()
   .trim()
-  .max(10_000, 'Description must be 10000 characters or less');
+  .max(
+    MAX_TASK_DESCRIPTION_LENGTH,
+    `Description must be ${MAX_TASK_DESCRIPTION_LENGTH} characters or less`,
+  );
 
 /**
  * A calendar day, `YYYY-MM-DD` only (what `<input type="date">` emits), and a real one:
@@ -29,7 +37,7 @@ const labelsSchema = z
       .string()
       .trim()
       .min(1, 'Labels cannot be empty')
-      .max(30, 'Labels must be 30 characters or less'),
+      .max(MAX_LABEL_LENGTH, `Labels must be ${MAX_LABEL_LENGTH} characters or less`),
   )
   .max(20, 'A task can have at most 20 labels');
 

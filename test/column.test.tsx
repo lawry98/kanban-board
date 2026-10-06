@@ -21,6 +21,7 @@ vi.mock('@/contexts/board-context', () => ({ useBoardContext: vi.fn() }));
 
 import { Column } from '@/components/board/column';
 import { useBoardContext } from '@/contexts/board-context';
+import { MAX_COLUMN_TITLE_LENGTH, MAX_TASK_TITLE_LENGTH } from '@/lib/constants';
 
 const EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
@@ -111,7 +112,7 @@ describe('Column menu', () => {
     await user.click(screen.getByRole('button', { name: 'Add task' }));
     const input = screen.getByRole('textbox', { name: 'Task title' });
     expect(input).toHaveFocus();
-    expect(input).toHaveAttribute('maxlength', '255');
+    expect(input).toHaveAttribute('maxlength', String(MAX_TASK_TITLE_LENGTH));
   });
 });
 
@@ -324,7 +325,7 @@ describe('Column rename', () => {
     const input = await screen.findByRole('textbox', { name: 'Column name' });
     await settle();
     expect(input).toHaveValue('Backlog');
-    expect(input).toHaveAttribute('maxlength', '100');
+    expect(input).toHaveAttribute('maxlength', String(MAX_COLUMN_TITLE_LENGTH));
   });
 
   it('recovers when the save rejects: toasts, closes the editor, and can save again', async () => {
