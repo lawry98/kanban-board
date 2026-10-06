@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
+import * as Sentry from '@sentry/nextjs';
 import { AlertCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,8 @@ interface ErrorPageProps {
 export default function ErrorPage({ error, reset }: ErrorPageProps) {
   useEffect(() => {
     console.error(error);
+    // Errors caught by an error boundary never reach Sentry's global handler.
+    Sentry.captureException(error);
   }, [error]);
 
   return (
