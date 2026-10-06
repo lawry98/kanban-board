@@ -346,6 +346,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 7. Don't forget Realtime cleanup — every `subscribe()` needs its `removeChannel` in the effect cleanup.
 8. Don't edit `components/ui/**` or applied migrations; don't `'use client'` everything.
 9. Don't run git commands; don't commit `.env.local`.
+10. **One scroll container per column list.** The board's `overflow-auto` div (`board-view.tsx`) is every Droppable's only scroll parent. Don't wrap a list in `ScrollArea` or give a column `overflow-*`: @hello-pangea/dnd doesn't support nested scroll containers (auto-scroll and keyboard moves break; dev console warns on drag).
 
 ---
 

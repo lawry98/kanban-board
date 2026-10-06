@@ -108,13 +108,23 @@ function BoardContent() {
         </div>
       )}
 
-      <div className="flex-1 overflow-x-auto">
+      {/* The only scroll container for every column list, on both axes. @hello-pangea/dnd
+          supports one scroll parent per Droppable; a column that also scrolled would be
+          nested (dev warning, and auto-scroll + keyboard moves stop tracking the board). */}
+      <div className="flex-1 overflow-auto" data-board-scroll-container>
         <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="flex h-full items-start gap-4 p-4 sm:p-6">
+          {/* min-h-full + items-stretch: every list spans the board's full height, so
+              wherever the board is scrolled, each column still shows a drop area (dnd
+              clips a list to its scroll parent's viewport). w-max keeps the end padding. */}
+          <div className="flex min-h-full w-max items-stretch gap-4 p-4 sm:p-6">
             {state.columns.map((column) => (
               <Column key={column.id} column={column} onTaskClick={setSelectedTask} />
             ))}
-            {canEdit && <AddColumnButton />}
+            {canEdit && (
+              <div className="self-start">
+                <AddColumnButton />
+              </div>
+            )}
           </div>
         </DragDropContext>
       </div>

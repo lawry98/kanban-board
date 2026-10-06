@@ -57,7 +57,7 @@ async function settle() {
 }
 
 beforeAll(() => {
-  // Radix (ScrollArea, menu positioning) calls these; jsdom implements none of them.
+  // Radix (menu positioning) calls these; jsdom implements none of them.
   globalThis.ResizeObserver ??= class {
     observe() {}
     unobserve() {}
@@ -215,5 +215,18 @@ describe('Column rename', () => {
 
     await waitFor(() => expect(updateColumn).toHaveBeenCalledTimes(2));
     expect(updateColumn).toHaveBeenLastCalledWith('col-1', { title: 'Doing' });
+  });
+});
+
+describe('Column scroll structure', () => {
+  it('renders its task list as a plain element with no scroll container of its own', () => {
+    const { container } = renderColumn();
+    expect(container.querySelector('[data-radix-scroll-area-viewport]')).toBeNull();
+
+    const list = container.querySelector(`[data-rfd-droppable-id="${COLUMN.id}"]`);
+    expect(list).not.toBeNull();
+    for (let el = list; el && el !== container; el = el.parentElement) {
+      expect(el.className).not.toMatch(/\boverflow-/);
+    }
   });
 });

@@ -15,12 +15,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { TaskCard } from '@/components/board/task-card';
 import { updateColumn, deleteColumn } from '@/app/actions/column-actions';
 import { createTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import { cn } from '@/lib/utils';
 import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
 
 interface ColumnProps {
@@ -194,30 +194,28 @@ export function Column({ column, onTaskClick }: ColumnProps) {
         )}
       </div>
 
-      {/* Droppable task area */}
+      {/* Task list. Its one scroll parent is the board (board-view.tsx): dnd doesn't
+          support a second scroll container here, so the list must never scroll itself. */}
       <Droppable droppableId={column.id}>
         {(provided, snapshot) => (
-          <ScrollArea
-            className={`bg-muted/30 rounded-lg border transition-colors ${
-              snapshot.isDraggingOver ? 'bg-muted/60' : ''
-            }`}
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={cn(
+              'bg-muted/30 flex min-h-[60px] flex-1 flex-col gap-2 rounded-lg border p-2 transition-colors',
+              snapshot.isDraggingOver && 'bg-muted/60',
+            )}
           >
-            <div
-              ref={provided.innerRef}
-              {...provided.droppableProps}
-              className="flex min-h-[60px] flex-col gap-2 p-2"
-            >
-              {column.tasks.length === 0 && !snapshot.isDraggingOver && (
-                <p className="text-muted-foreground py-4 text-center text-xs">No tasks yet</p>
-              )}
+            {column.tasks.length === 0 && !snapshot.isDraggingOver && (
+              <p className="text-muted-foreground py-4 text-center text-xs">No tasks yet</p>
+            )}
 
-              {column.tasks.map((task, index) => (
-                <TaskCard key={task.id} task={task} index={index} onClick={onTaskClick} />
-              ))}
+            {column.tasks.map((task, index) => (
+              <TaskCard key={task.id} task={task} index={index} onClick={onTaskClick} />
+            ))}
 
-              {provided.placeholder}
-            </div>
-          </ScrollArea>
+            {provided.placeholder}
+          </div>
         )}
       </Droppable>
 
