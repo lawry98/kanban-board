@@ -242,7 +242,7 @@ describe('useRealtime — authenticated subscription', () => {
     expect(liveChannels()[0].joinedWithToken).toBe('token-alice');
   });
 
-  it('listens to tasks, columns and board_members for this board only', async () => {
+  it('listens to tasks, columns, board_members and the board row for this board only', async () => {
     fake.state.session = alice;
     renderRealtime();
     await settle();
@@ -251,6 +251,7 @@ describe('useRealtime — authenticated subscription', () => {
       { table: 'tasks', filter: `board_id=eq.${BOARD_ID}` },
       { table: 'columns', filter: `board_id=eq.${BOARD_ID}` },
       { table: 'board_members', filter: `board_id=eq.${BOARD_ID}` },
+      { table: 'boards', filter: `id=eq.${BOARD_ID}` },
     ]);
   });
 
@@ -532,6 +533,22 @@ describe('useRealtime — sync', () => {
     expect(getBoardData).toHaveBeenCalledTimes(1);
   });
 
+  it('resyncs when the board row changes (e.g. a rename)', async () => {
+    fake.state.session = alice;
+    renderRealtime();
+    await settle();
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    await settle();
+    getBoardData.mockClear();
+    const boardRow = liveChannels()[0].bindings.find((b) => b.table === 'boards');
+
+    act(() => boardRow?.callback());
+    await advance(300);
+
+    expect(getBoardData).toHaveBeenCalledTimes(1);
+    expect(getBoardData).toHaveBeenCalledWith(BOARD_ID);
+  });
+
   it.each([
     ['the tab becomes visible', () => document.dispatchEvent(new Event('visibilitychange'))],
     ['the browser comes back online', () => window.dispatchEvent(new Event('online'))],
@@ -601,6 +618,7 @@ describe('useRealtime — lifecycle', () => {
       `board_id=eq.${OTHER_BOARD_ID}`,
       `board_id=eq.${OTHER_BOARD_ID}`,
       `board_id=eq.${OTHER_BOARD_ID}`,
+      `id=eq.${OTHER_BOARD_ID}`,
     ]);
   });
 

@@ -198,6 +198,12 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
             filter: `board_id=eq.${boardId}`,
           },
           debouncedSync,
+        )
+        .on(
+          'postgres_changes',
+          // The board row itself: renames and description edits. Its key is `id`.
+          { event: '*', schema: 'public', table: 'boards', filter: `id=eq.${boardId}` },
+          debouncedSync,
         );
     }
 
