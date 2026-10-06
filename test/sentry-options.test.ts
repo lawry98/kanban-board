@@ -1,14 +1,16 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
+import { httpHeadersToSpanAttributes } from '@sentry/nextjs';
+
 import { redactInviteTokens, SENTRY_SHARED_OPTIONS } from '@/lib/sentry-options';
 import type { Breadcrumb, ErrorEvent } from '@sentry/nextjs';
 
 // Not re-exported by @sentry/nextjs; take it from the hook's own signature.
 type StreamedSpanJSON = Parameters<NonNullable<typeof SENTRY_SHARED_OPTIONS.beforeSendSpan>>[0];
 
-// Shape of a real invite token: randomBytes(32).toString('base64url').
-const TOKEN = 'q5Xb-0_T9vLm2NwZ8yKcA1rD3eHfGiJ4oPsU6tWxY7k';
+// Shape of a real invite token: randomBytes(24).toString('base64url').
+const TOKEN = 'q5Xb-0_T9vLm2NwZ8yKcA1rD3eHfGiJ4';
 
 describe('redactInviteTokens', () => {
   it.each([
@@ -37,6 +39,11 @@ describe('redactInviteTokens', () => {
       `navigated from /join/${TOKEN} to /register?next=%2Fjoin%2F${TOKEN}`,
       'navigated from /join/[token] to /register?next=%2Fjoin%2F[token]',
     ],
+    [
+      'free text, keeping the punctuation that follows',
+      `failed (/join/${TOKEN}), retrying /join/${TOKEN}; done`,
+      'failed (/join/[token]), retrying /join/[token]; done',
+    ],
   ])('redacts the token in %s', (_label, input, expected) => {
     expect(redactInviteTokens(input)).toBe(expected);
   });
@@ -51,6 +58,49 @@ describe('redactInviteTokens', () => {
     'GET /join/[token]',
   ])('leaves %s unchanged', (input) => {
     expect(redactInviteTokens(input)).toBe(input);
+  });
+});
+
+describe('request header collection', () => {
+  // The SDK's own filter, as applied to the server root span's header attributes. Error events
+  // run the same deny-list through the same matcher.
+  const collect = (headers: Record<string, string>) =>
+    httpHeadersToSpanAttributes(
+      headers,
+      SENTRY_SHARED_OPTIONS.dataCollection as Parameters<typeof httpHeadersToSpanAttributes>[1],
+    );
+
+  it('filters the router state tree, which carries the invite token without a /join/ prefix', () => {
+    const tree = encodeURIComponent(
+      JSON.stringify(['', { children: ['join', ['token', TOKEN, 'd']] }]),
+    );
+    expect(collect({ 'Next-Router-State-Tree': tree })).toEqual({
+      'http.request.header.next-router-state-tree': ['[Filtered]'],
+    });
+  });
+
+  it.each([
+    ['referer', `https://kanban.example.com/join/${TOKEN}`],
+    ['x-forwarded-for', '203.0.113.7'],
+    ['x-vercel-forwarded-for', '203.0.113.7'],
+    ['forwarded', 'for=203.0.113.7'],
+    ['x-real-ip', '203.0.113.7'],
+    ['x-vercel-ip-city', 'Boston'],
+    ['cf-connecting-ip', '203.0.113.7'],
+    ['true-client-ip', '203.0.113.7'],
+    ['authorization', 'Bearer abc'],
+  ])('filters %s', (name, value) => {
+    expect(collect({ [name]: value })).toEqual({ [`http.request.header.${name}`]: ['[Filtered]'] });
+  });
+
+  it('drops the cookie header, which carries the Supabase session', () => {
+    expect(collect({ cookie: 'sb-project-auth-token=secret' })).toEqual({});
+  });
+
+  it('keeps harmless headers', () => {
+    expect(collect({ accept: 'text/html' })).toEqual({
+      'http.request.header.accept': ['text/html'],
+    });
   });
 });
 
