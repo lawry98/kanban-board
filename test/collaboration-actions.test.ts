@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
@@ -57,11 +57,16 @@ const db = prisma as unknown as {
 };
 const mockedCreateClient = createClient as unknown as Mock;
 
-function signInAs(id = USER_ID): void {
+const CONFIRMED_AT = '2026-01-01T00:00:00Z';
+
+/** Signs in a mocked user; `confirmed: false` models an unverified (no `email_confirmed_at`) address. */
+function signInAs(id = USER_ID, email = 'me@example.com', confirmed = true): void {
   mockedCreateClient.mockResolvedValue({
     auth: {
       getUser: vi.fn().mockResolvedValue({
-        data: { user: { id, email: 'me@example.com' } },
+        data: {
+          user: { id, email, email_confirmed_at: confirmed ? CONFIRMED_AT : undefined },
+        },
         error: null,
       }),
     },
@@ -76,7 +81,8 @@ function makeInvitation(overrides: Record<string, unknown> = {}) {
     token: 'tok_abc',
     email: null,
     invitedBy: USER_ID,
-    expiresAt: null,
+    // A future expiry: a null expiry with a 2026-01-01 createdAt is a lapsed legacy link.
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     revokedAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
@@ -136,6 +142,22 @@ describe('acceptInvitation', () => {
 
     expect(result).toEqual({ error: 'This invite link is no longer valid' });
     expect(db.boardMember.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a legacy null-expiry link created more than 7 days ago', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.invitation.findUnique.mockResolvedValue(
+      makeInvitation({
+        expiresAt: null,
+        createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      }),
+    );
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: 'This invite link is no longer valid' });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it('is idempotent for an existing member — no duplicate membership created', async () => {
@@ -289,6 +311,64 @@ describe('acceptInvitation', () => {
   });
 });
 
+describe('acceptInvitation — email-bound invites', () => {
+  // Rejections log through toActionError; keep that expected noise out of the test output.
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  const MISMATCH =
+    'This invite was sent to a different email address. Sign in with that account to join.';
+
+  it('rejects a different signed-in email without touching membership', async () => {
+    signInAs(USER_ID, 'bob@example.com');
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: MISMATCH });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+    // Checked before the existing-member shortcut: the answer can't depend on membership.
+    expect(db.boardMember.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('joins when the confirmed email matches case-insensitively', async () => {
+    signInAs(USER_ID, 'ANN@example.com');
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ data: { boardId: BOARD_A } });
+    expect(db.boardMember.create).toHaveBeenCalled();
+  });
+
+  it('rejects a matching but unconfirmed email', async () => {
+    signInAs(USER_ID, 'ann@example.com', false);
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: MISMATCH });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+  });
+
+  it('never echoes the bound address in the mismatch error', async () => {
+    signInAs(USER_ID, 'bob@example.com');
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result.error).toBeDefined();
+    expect(result.error).not.toContain('ann@example.com');
+  });
+});
+
 describe('revokeInvitation', () => {
   it('derives the board from the invitation row (anti-IDOR), not from any client id', async () => {
     // The invitation lives on BOARD_B; authorization must be checked against BOARD_B.
@@ -332,6 +412,25 @@ describe('createInvitation', () => {
     // Unguessable server-generated token, never client input.
     expect(typeof created.token).toBe('string');
     expect(created.token.length).toBeGreaterThan(16);
+  });
+
+  it('stamps expiresAt 7 days ahead', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
+      db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+      db.invitation.create.mockImplementation(
+        async ({ data }: { data: Record<string, unknown> }) => ({ id: INVITATION_ID, ...data }),
+      );
+
+      await createInvitation(BOARD_A, { role: 'EDITOR' });
+
+      expect(db.invitation.create.mock.calls[0][0].data.expiresAt).toEqual(
+        new Date('2026-10-13T12:00:00Z'),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects a non-owner caller before creating anything', async () => {
@@ -379,9 +478,10 @@ describe('getInvitations', () => {
     const where = db.invitation.findMany.mock.calls[0][0].where;
     expect(where.boardId).toBe(BOARD_A);
     expect(where.revokedAt).toBeNull();
-    // Expiry filter: null (never expires) OR still in the future.
+    // Expiry filter: still in the future, or a legacy null-expiry row inside its 7-day window.
     expect(Array.isArray(where.OR)).toBe(true);
-    expect(where.OR).toContainEqual({ expiresAt: null });
+    expect(where.OR).toContainEqual({ expiresAt: { gt: expect.any(Date) } });
+    expect(where.OR).toContainEqual({ expiresAt: null, createdAt: { gt: expect.any(Date) } });
   });
 });
 
