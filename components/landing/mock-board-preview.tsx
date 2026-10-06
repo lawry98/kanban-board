@@ -231,8 +231,7 @@ export function MockBoardPreview() {
             <div className="h-2.5 w-2.5 rounded-full bg-green-400" />
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-            <span className="text-muted-foreground text-xs font-medium">Q1 2025 Roadmap</span>
+            <span className="text-muted-foreground text-xs font-medium">Website Launch</span>
           </div>
           <div className="flex items-center">
             {(
@@ -252,7 +251,7 @@ export function MockBoardPreview() {
                 {a.initials}
               </div>
             ))}
-            <span className="text-muted-foreground ml-2 text-[10px]">3 online</span>
+            <span className="text-muted-foreground ml-2 text-[10px]">3 members</span>
           </div>
         </div>
 
