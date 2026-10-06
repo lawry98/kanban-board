@@ -104,6 +104,87 @@ describe('proxy', () => {
   });
 });
 
+const nextParam = (res: Response) => new URL(res.headers.get('location')!).searchParams.get('next');
+
+describe('proxy return-to-original-page (next)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('remembers path and query when a signed-out GET is sent to /login', async () => {
+    stubSession(null);
+    const res = await proxy(request('/board/abc?tab=1', 'GET'));
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
+    expect(nextParam(res)).toBe('/board/abc?tab=1');
+  });
+
+  it('remembers the destination on a signed-out HEAD, like GET', async () => {
+    stubSession(null);
+    const res = await proxy(request('/board/abc', 'HEAD'));
+    expect(nextParam(res)).toBe('/board/abc');
+  });
+
+  it('adds no next for /boards — it is already the default destination', async () => {
+    stubSession(null);
+    const res = await proxy(request('/boards', 'GET'));
+    expect(location(res)).toBe('/login');
+  });
+
+  it('adds no next for a signed-out POST — a Server Action is never navigated back to', async () => {
+    stubSession(null);
+    const res = await proxy(request('/board/abc', 'POST'));
+    expect(location(res)).toBe('/login');
+  });
+
+  it('adds no next for a protocol-relative request path', async () => {
+    stubSession(null);
+    const res = await proxy(new NextRequest(`${ORIGIN}//evil.com`));
+    expect(location(res)).toBe('/login');
+  });
+
+  it('sends a signed-in visitor to /login or /register on to their next', async () => {
+    for (const path of ['/login', '/register']) {
+      stubSession(FAKE_USER);
+      const res = await proxy(request(`${path}?next=%2Fboard%2Fabc`, 'GET'));
+      expect(location(res)).toBe('/board/abc');
+    }
+  });
+
+  it('falls back to /boards, same origin, for an unsafe next on a signed-in bounce', async () => {
+    for (const unsafe of ['%2F%09%2Fevil.com', '%2F%2Fevil.com', 'https%3A%2F%2Fevil.com']) {
+      stubSession(FAKE_USER);
+      const res = await proxy(request(`/login?next=${unsafe}`, 'GET'));
+      const url = new URL(res.headers.get('location')!);
+      expect(url.origin).toBe(ORIGIN);
+      expect(url.pathname).toBe('/boards');
+    }
+  });
+
+  it('does not bounce a signed-in visitor back onto an auth page', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/login?next=%2Flogin', 'GET'));
+    expect(location(res)).toBe('/boards');
+  });
+
+  it('passes a signed-in POST to /login through untouched', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/login?next=%2Fboard%2Fabc', 'POST'));
+    expect(res).toBe(passthrough);
+  });
+
+  it('still sets the CSP on the new redirects', async () => {
+    stubSession(null);
+    const toLogin = await proxy(request('/board/abc?tab=1', 'GET'));
+    expect(nextParam(toLogin)).toBe('/board/abc?tab=1');
+    expect(toLogin.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
+
+    stubSession(FAKE_USER);
+    const bounced = await proxy(request('/login?next=%2Fboard%2Fabc', 'GET'));
+    expect(location(bounced)).toBe('/board/abc');
+    expect(bounced.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
+  });
+});
+
 describe('content security policy', () => {
   const CSP_NAMES = new Set(['content-security-policy', 'content-security-policy-report-only']);
 

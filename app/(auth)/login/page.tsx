@@ -142,7 +142,11 @@ function LoginForm() {
         <p className="text-muted-foreground text-center text-sm">
           Don&apos;t have an account?{' '}
           <Link
-            href={ROUTES.register}
+            href={
+              searchParams.get('next')
+                ? `${ROUTES.register}?next=${encodeURIComponent(next)}`
+                : ROUTES.register
+            }
             className="text-foreground font-medium underline underline-offset-4"
           >
             Sign up

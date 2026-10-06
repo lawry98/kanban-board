@@ -68,4 +68,35 @@ describe('sanitizeNext', () => {
     expect(sanitizeNext('/join/abc123')).toBe('/join/abc123');
     expect(sanitizeNext('/board/xyz?tab=1')).toBe('/board/xyz?tab=1');
   });
+
+  it('rejects control characters the URL parser would strip into //host', () => {
+    for (const evil of [
+      '/\t/evil.com',
+      '/\n/evil.com',
+      '/\r\n/evil.com',
+      '/\t\\evil.com',
+      '/\u0000/x',
+    ]) {
+      expect(sanitizeNext(evil)).toBe('/boards');
+      expect(new URL(sanitizeNext(evil), 'https://app.example.com').origin).toBe(
+        'https://app.example.com',
+      );
+    }
+  });
+
+  it('rejects any backslash and dot-segment tricks that normalize to //host', () => {
+    expect(sanitizeNext('/foo\\bar')).toBe('/boards');
+    expect(sanitizeNext('/..//evil.com')).toBe('/boards');
+    expect(sanitizeNext('/.//evil.com')).toBe('/boards');
+  });
+
+  it('keeps encoded slashes as a same-origin path', () => {
+    expect(new URL(sanitizeNext('/%2F%2Fevil.com'), 'https://app.example.com').origin).toBe(
+      'https://app.example.com',
+    );
+  });
+
+  it('preserves query and hash', () => {
+    expect(sanitizeNext('/board/xyz?tab=1#c')).toBe('/board/xyz?tab=1#c');
+  });
 });

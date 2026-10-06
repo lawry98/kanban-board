@@ -61,6 +61,16 @@ describe('auth/callback GET', () => {
     expect(location(res)).toBe('/boards');
   });
 
+  it('does not redirect off-origin for a control-character next (open-redirect regression)', async () => {
+    // `new URL('/\t/evil.com', origin)` resolves to https://evil.com/ because the URL
+    // parser strips the tab, so the guard must reject it before it reaches the redirect.
+    exchangeReturns(null);
+    const res = await GET(request('?code=abc&next=%2F%09%2Fevil.com'));
+    const url = new URL(res.headers.get('location') as string);
+    expect(url.origin).toBe(ORIGIN);
+    expect(url.pathname).toBe('/boards');
+  });
+
   it('routes a failed recovery-link exchange to the link-error page, not login', async () => {
     // The cross-device reset trap: the PKCE verifier lives in the requesting browser,
     // so opening the email elsewhere fails the exchange. Those users must reach a page

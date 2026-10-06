@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { ROUTES } from '@/lib/auth/redirects';
+import { DEFAULT_REDIRECT, ROUTES, sanitizeNext } from '@/lib/auth/redirects';
 import {
   CSP_HEADER,
   CSP_REPORT_ONLY,
@@ -75,6 +75,25 @@ function redirectWithCookies(source: NextResponse, url: URL): NextResponse {
   return redirect;
 }
 
+/** Login URL for a signed-out visitor, remembering where a navigation was headed. */
+function loginUrl(request: NextRequest): URL {
+  const url = new URL(LOGIN_ROUTE, request.url);
+  // Only a navigation can come back here: a Server Action POST is a fetch the
+  // browser never lands on. Path + query only — never the origin.
+  if (isDocumentRequest(request.method)) {
+    const { pathname, search } = request.nextUrl;
+    const next = sanitizeNext(pathname + search);
+    if (next !== DEFAULT_REDIRECT) url.searchParams.set('next', next);
+  }
+  return url;
+}
+
+/** Where a signed-in visitor to /login or /register goes: their `next`, if safe. */
+function postLoginUrl(request: NextRequest): URL {
+  const target = new URL(sanitizeNext(request.nextUrl.searchParams.get('next')), request.url);
+  return isAuthRoute(target.pathname) ? new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url) : target;
+}
+
 /** Every response the proxy returns carries the policy — redirects included. */
 function withCsp(response: NextResponse, csp: string): NextResponse {
   response.headers.set(CSP_HEADER, csp);
@@ -103,7 +122,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!user && !isPublicRoute(pathname)) {
-    return withCsp(redirectWithCookies(response, new URL(LOGIN_ROUTE, request.url)), csp);
+    return withCsp(redirectWithCookies(response, loginUrl(request)), csp);
   }
 
   // Only bounce document requests (GET/HEAD) away from auth routes. A Server Action
@@ -113,10 +132,7 @@ export async function proxy(request: NextRequest) {
   // signed_up analytics emission — never runs. Redirecting a POST to a GET target
   // is meaningless anyway, so gating on method loses nothing.
   if (user && isAuthRoute(pathname) && isDocumentRequest(request.method)) {
-    return withCsp(
-      redirectWithCookies(response, new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url)),
-      csp,
-    );
+    return withCsp(redirectWithCookies(response, postLoginUrl(request)), csp);
   }
 
   return withCsp(response, csp);
