@@ -53,15 +53,23 @@ export function Column({ column, onTaskClick }: ColumnProps) {
 
     closingTitleEditRef.current = true;
     if (restoreFocus) menuTriggerRef.current?.focus();
-    const result = await updateColumn(column.id, { title });
-    closingTitleEditRef.current = false;
-    if (result.error) {
-      toast.error(result.error);
+    try {
+      const result = await updateColumn(column.id, { title });
+      if (result.error) {
+        toast.error(result.error);
+        setTitleValue(column.title);
+      } else {
+        dispatch({ type: 'UPDATE_COLUMN', payload: { id: column.id, title } });
+      }
+    } catch (err) {
+      // The action itself rejected (offline, aborted fetch) — it never returned an { error }.
+      console.error('renameColumn failed:', err);
+      toast.error('Failed to rename column');
       setTitleValue(column.title);
-    } else {
-      dispatch({ type: 'UPDATE_COLUMN', payload: { id: column.id, title } });
+    } finally {
+      closingTitleEditRef.current = false;
+      setIsEditingTitle(false);
     }
-    setIsEditingTitle(false);
   }
 
   function cancelRename({ restoreFocus = false } = {}) {

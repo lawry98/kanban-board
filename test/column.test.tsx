@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DragDropContext } from '@hello-pangea/dnd';
@@ -49,10 +49,7 @@ function renderColumn(column: ColumnWithTasks = COLUMN) {
   );
 }
 
-/**
- * Lets Radix finish closing the menu: FocusScope hands focus back on a
- * `setTimeout(0)` after unmount, and the old code refocused at 50 ms.
- */
+/** Lets Radix finish closing the menu: FocusScope hands focus back on a `setTimeout(0)` after unmount. */
 async function settle() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -74,6 +71,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockContext();
   updateColumn.mockResolvedValue({ data: { ...COLUMN, title: 'Doing' } });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('Column menu', () => {
@@ -145,5 +146,74 @@ describe('Column rename', () => {
     expect(trigger).toHaveFocus();
     expect(updateColumn).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { name: 'To do' })).toBeInTheDocument();
+  });
+
+  it('saves once on click-away and leaves focus where the user clicked', async () => {
+    const user = userEvent.setup();
+    renderColumn();
+    const trigger = screen.getByRole('button', { name: 'To do column actions' });
+
+    await user.click(screen.getByRole('heading', { name: 'To do' }));
+    const input = await screen.findByRole('textbox', { name: 'Column name' });
+    await user.clear(input);
+    await user.type(input, 'Doing');
+    await user.click(document.body);
+
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Column name' })).not.toBeInTheDocument(),
+    );
+    expect(updateColumn).toHaveBeenCalledTimes(1);
+    expect(updateColumn).toHaveBeenCalledWith('col-1', { title: 'Doing' });
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it('reverts the title, toasts, and closes the editor when the save returns an error', async () => {
+    updateColumn.mockResolvedValue({ error: 'Not allowed' });
+    const user = userEvent.setup();
+    renderColumn();
+
+    await user.click(screen.getByRole('heading', { name: 'To do' }));
+    const input = await screen.findByRole('textbox', { name: 'Column name' });
+    await user.clear(input);
+    await user.type(input, 'Doing{Enter}');
+
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Column name' })).not.toBeInTheDocument(),
+    );
+    expect(toastError).toHaveBeenCalledWith('Not allowed');
+    expect(screen.getByRole('heading', { name: 'To do' })).toBeInTheDocument();
+
+    // The draft is gone: reopening shows the original title, not the rejected one.
+    await user.click(screen.getByRole('heading', { name: 'To do' }));
+    expect(await screen.findByRole('textbox', { name: 'Column name' })).toHaveValue('To do');
+  });
+
+  it('recovers when the save rejects: toasts, closes the editor, and can save again', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    updateColumn.mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup();
+    renderColumn();
+
+    await user.click(screen.getByRole('heading', { name: 'To do' }));
+    const input = await screen.findByRole('textbox', { name: 'Column name' });
+    await user.clear(input);
+    await user.type(input, 'Doing{Enter}');
+
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Column name' })).not.toBeInTheDocument(),
+    );
+    expect(toastError).toHaveBeenCalledWith('Failed to rename column');
+    expect(consoleError).toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'To do' })).toBeInTheDocument();
+
+    // The in-flight guard was released: the editor reopens with the original title and saves.
+    await user.click(screen.getByRole('heading', { name: 'To do' }));
+    const reopened = await screen.findByRole('textbox', { name: 'Column name' });
+    expect(reopened).toHaveValue('To do');
+    await user.clear(reopened);
+    await user.type(reopened, 'Doing{Enter}');
+
+    await waitFor(() => expect(updateColumn).toHaveBeenCalledTimes(2));
+    expect(updateColumn).toHaveBeenLastCalledWith('col-1', { title: 'Doing' });
   });
 });
