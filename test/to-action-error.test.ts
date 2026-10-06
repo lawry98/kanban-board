@@ -16,6 +16,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 
 import { PublicError, toActionError } from '@/lib/auth/require-access';
+import { RateLimitError } from '@/lib/rate-limit';
 
 describe('toActionError', () => {
   beforeEach(() => {
@@ -35,6 +36,13 @@ describe('toActionError', () => {
   it('does not report a PublicError (an expected, client-safe outcome)', () => {
     expect(toActionError('x', new PublicError('Board not found'), 'f')).toEqual({
       error: 'Board not found',
+    });
+    expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  it('does not report a RateLimitError (a block is an expected outcome, not an outage)', () => {
+    expect(toActionError('x', new RateLimitError(42), 'fallback')).toEqual({
+      error: 'Too many requests, try again in 42s',
     });
     expect(sentry.captureException).not.toHaveBeenCalled();
   });

@@ -262,7 +262,7 @@ describe('content security policy', () => {
     expect(forwarded.get('x-nonce')).toBe(nonceIn(res.headers.get(CSP_HEADER) ?? ''));
   });
 
-  it('allows only the Sentry DSN origin in connect-src when NEXT_PUBLIC_SENTRY_DSN is set', async () => {
+  it('allows only the Sentry DSN origin in connect-src and reports violations to Sentry when NEXT_PUBLIC_SENTRY_DSN is set', async () => {
     mockEnv.env.NEXT_PUBLIC_SENTRY_DSN = 'https://0123456789abcdef@o123.ingest.us.sentry.io/456';
     stubSession(FAKE_USER);
     const res = await proxy(request('/boards'));
@@ -272,10 +272,14 @@ describe('content security policy', () => {
       'wss://abcd.supabase.co',
       'https://o123.ingest.us.sentry.io',
     ]);
-    expect(res.headers.get(CSP_HEADER)).not.toContain('0123456789abcdef');
+    // The public key appears only in the report-uri endpoint, never in connect-src.
+    expect(connectSrc(res).join(' ')).not.toContain('0123456789abcdef');
+    expect(res.headers.get(CSP_HEADER)).toContain(
+      'report-uri https://o123.ingest.us.sentry.io/api/456/security/?sentry_key=0123456789abcdef',
+    );
   });
 
-  it('adds nothing to connect-src without a DSN', async () => {
+  it('adds nothing to connect-src and no report-uri without a DSN', async () => {
     stubSession(FAKE_USER);
     const res = await proxy(request('/boards'));
     expect(connectSrc(res)).toEqual([
@@ -283,6 +287,7 @@ describe('content security policy', () => {
       'https://abcd.supabase.co',
       'wss://abcd.supabase.co',
     ]);
+    expect(res.headers.get(CSP_HEADER)).not.toContain('report-uri');
   });
 
   it('survives a malformed DSN, still setting the policy', async () => {
@@ -294,6 +299,7 @@ describe('content security policy', () => {
       'https://abcd.supabase.co',
       'wss://abcd.supabase.co',
     ]);
+    expect(res.headers.get(CSP_HEADER)).not.toContain('report-uri');
   });
 
   it('sets the policy on the signed-in bounce off an auth route', async () => {

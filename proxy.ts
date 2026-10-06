@@ -39,7 +39,7 @@ export const PUBLIC_ROUTE_PREFIXES = ['/auth/', '/join/'] as const;
 export const AUTH_ROUTES = [ROUTES.login, ROUTES.register] as const;
 
 /** Where authenticated users land when they hit an auth route. */
-export const DEFAULT_AUTHENTICATED_ROUTE = ROUTES.boards;
+export const DEFAULT_AUTHENTICATED_ROUTE = DEFAULT_REDIRECT;
 
 /** Where unauthenticated users are sent when they hit a protected route. */
 export const LOGIN_ROUTE = ROUTES.login;

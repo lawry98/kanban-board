@@ -27,7 +27,10 @@ interface CspOptions {
   isDev: boolean;
   /** Browsers ignore `upgrade-insecure-requests` in a report-only policy and warn, so omit it. */
   reportOnly: boolean;
-  /** `NEXT_PUBLIC_SENTRY_DSN`. Only its origin is allowed in `connect-src`; unusable values are ignored. */
+  /**
+   * `NEXT_PUBLIC_SENTRY_DSN`. Its origin is allowed in `connect-src` and its security endpoint
+   * becomes the `report-uri`; unusable values are ignored.
+   */
   sentryDsn?: string;
 }
 
@@ -46,6 +49,32 @@ function sentryOrigin(dsn: string | undefined): string | undefined {
   return origin && SAFE_ORIGIN.test(origin) ? origin : undefined;
 }
 
+/** Sentry DSN pieces that reach the policy: a hex-ish public key and a numeric project id. */
+const DSN_PUBLIC_KEY = /^[A-Za-z0-9]+$/;
+const DSN_PROJECT_ID = /^\d+$/;
+/** Zero or more `/segment`s of plain characters: no `;`, `,`, whitespace or percent-escapes. */
+const DSN_PATH_PREFIX = /^(?:\/[\w.-]+)*$/;
+
+/**
+ * Where browsers send violation reports: Sentry's security endpoint for the DSN's project,
+ * `<origin><path prefix>/api/<projectId>/security/?sentry_key=<publicKey>`. Without it a
+ * Report-Only policy is only visible in each visitor's own console. The public key is meant to
+ * be public (it already ships in the browser bundle), but every piece is still validated to a
+ * strict character set so nothing from an operator typo can reach the header. Never throws.
+ */
+function sentryReportUri(dsn: string | undefined): string | undefined {
+  if (!dsn) return undefined;
+  const url = URL.parse(dsn);
+  if (!url || !SAFE_ORIGIN.test(url.origin)) return undefined;
+  const segments = url.pathname.split('/');
+  const projectId = segments.pop();
+  const pathPrefix = segments.join('/');
+  if (!DSN_PUBLIC_KEY.test(url.username)) return undefined;
+  if (projectId === undefined || !DSN_PROJECT_ID.test(projectId)) return undefined;
+  if (!DSN_PATH_PREFIX.test(pathPrefix)) return undefined;
+  return `${url.origin}${pathPrefix}/api/${projectId}/security/?sentry_key=${url.username}`;
+}
+
 export function buildContentSecurityPolicy({
   nonce,
   supabaseUrl,
@@ -56,6 +85,7 @@ export function buildContentSecurityPolicy({
   const supabase = new URL(supabaseUrl).origin;
   const supabaseSocket = supabase.replace(/^http/, 'ws');
   const sentry = sentryOrigin(sentryDsn);
+  const reportUri = sentryReportUri(sentryDsn);
 
   const directives: [string, ...string[]][] = [
     ['default-src', "'self'"],
@@ -88,6 +118,7 @@ export function buildContentSecurityPolicy({
     ['form-action', "'self'"],
     ['frame-ancestors', "'none'"],
   ];
+  if (reportUri) directives.push(['report-uri', reportUri]);
 
   const policy = directives.map((d) => d.join(' '));
   if (!isDev && !reportOnly) policy.push('upgrade-insecure-requests');

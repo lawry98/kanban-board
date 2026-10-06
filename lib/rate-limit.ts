@@ -1,5 +1,8 @@
+import * as Sentry from '@sentry/nextjs';
+
 import { prisma } from '@/lib/prisma';
 import { PublicError } from '@/lib/auth/require-access';
+import { flushSentryAfterResponse } from '@/lib/sentry-flush';
 
 interface RateLimitRule {
   limit: number;
@@ -35,6 +38,27 @@ export class RateLimitError extends PublicError {
   }
 }
 
+/** At most one Sentry report per process in this window: a missing table fails every mutation. */
+const OUTAGE_REPORT_INTERVAL_MS = 5 * 60 * 1000;
+let lastOutageReportAt: number | null = null;
+
+/**
+ * Sends a limiter outage to Sentry (`console.error` alone never reaches it), throttled so a
+ * persistent outage costs one event per interval rather than one per mutation. Reporting is
+ * itself fail-open: a throwing SDK must not turn an outage into a user-facing failure.
+ */
+function reportOutage(report: () => void): void {
+  const now = Date.now();
+  if (lastOutageReportAt !== null && now - lastOutageReportAt < OUTAGE_REPORT_INTERVAL_MS) return;
+  lastOutageReportAt = now;
+  try {
+    report();
+    flushSentryAfterResponse();
+  } catch (reportError) {
+    console.error('rateLimit outage report failed (non-fatal):', reportError);
+  }
+}
+
 interface CounterRow {
   hits: number | bigint;
   retry_after: number | bigint;
@@ -45,8 +69,9 @@ interface CounterRow {
  * window's limit is exceeded. Call it right after the action's auth guard.
  *
  * Fails OPEN: if the counter can't be read or written, the call is allowed and the
- * error logged, so a limiter outage never blocks users. The block decision sits
- * outside the try so fail-open can never swallow a `RateLimitError`.
+ * error logged (and reported to Sentry, throttled), so a limiter outage never blocks
+ * users yet never goes unnoticed. The block decision sits outside the try so fail-open
+ * can never swallow a `RateLimitError`; a block is expected and is never reported.
  *
  * One row per (bucket, user), reset in place when its window lapses: the upsert is
  * atomic (ON CONFLICT locks the row), timing uses the database clock, and the table
@@ -77,6 +102,7 @@ export async function enforceRateLimit(userId: string, bucket: RateLimitBucket):
     row = rows[0];
   } catch (error) {
     console.error(`rateLimit(${bucket}) failed open (non-fatal):`, error);
+    reportOutage(() => Sentry.captureException(error, { tags: { rateLimit: bucket } }));
     return;
   }
 
@@ -84,6 +110,12 @@ export async function enforceRateLimit(userId: string, bucket: RateLimitBucket):
   if (!Number.isFinite(hits)) {
     // The query "succeeded" but gave no usable counter: same outage as a thrown error.
     console.error(`rateLimit(${bucket}) failed open (non-fatal): unexpected counter row`, row);
+    reportOutage(() =>
+      Sentry.captureMessage(`rateLimit(${bucket}) failed open: unexpected counter row`, {
+        level: 'error',
+        tags: { rateLimit: bucket },
+      }),
+    );
     return;
   }
   if (hits <= limit) return;
