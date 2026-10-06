@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, MoreHorizontal, Share2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -37,11 +37,22 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
   // off it; comparing against the live title alone would write the stale seed
   // back over a rename a collaborator made while the editor was open.
   const editSeedRef = useRef(title);
+  // Enter/Escape set this so focus returns to the title button once the editor
+  // closes. A click-away blur leaves it unset: focus belongs to what was clicked.
+  const restoreFocusRef = useRef(false);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
+
+  // Runs after the editor has unmounted and the title button is back in the DOM.
+  useEffect(() => {
+    if (isEditingTitle || !restoreFocusRef.current) return;
+    restoreFocusRef.current = false;
+    titleButtonRef.current?.focus();
+  }, [isEditingTitle]);
 
   function startEditing() {
     editSeedRef.current = title;
@@ -83,36 +94,48 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
   }
 
   return (
-    <div className="flex items-center justify-between border-b px-4 py-3 sm:px-6">
-      <div className="flex flex-col gap-0.5">
+    <header className="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6">
+      <div className="flex min-w-0 flex-col gap-0.5">
         {isEditingTitle && canEdit ? (
           <Input
             value={titleValue}
             onChange={(e) => setTitleValue(e.target.value)}
             onBlur={handleTitleBlur}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Enter') {
+                // Focus lands on the title button before this keystroke's keypress
+                // fires; without preventDefault that Enter would click it and
+                // reopen the editor.
+                e.preventDefault();
+                restoreFocusRef.current = true;
+                e.currentTarget.blur();
+              }
               if (e.key === 'Escape') {
                 cancelEditRef.current = true;
+                restoreFocusRef.current = true;
                 e.currentTarget.blur();
               }
             }}
-            className="h-8 w-64 px-1 text-xl font-semibold"
+            aria-label="Board title"
+            className="h-8 w-full px-1 text-xl font-semibold sm:w-64"
             autoFocus
           />
         ) : (
-          <h1 className="text-xl font-semibold tracking-tight">
+          <h1 className="min-w-0 text-xl font-semibold tracking-tight">
             {canEdit ? (
               <button
+                ref={titleButtonRef}
                 type="button"
                 onClick={startEditing}
                 title={title}
-                className="cursor-pointer text-left hover:opacity-70"
+                className="focus-visible:ring-ring block max-w-full cursor-pointer truncate rounded-sm text-left hover:opacity-70 focus-visible:ring-2 focus-visible:outline-none"
               >
                 {title}
               </button>
             ) : (
-              title
+              <span className="block truncate" title={title}>
+                {title}
+              </span>
             )}
           </h1>
         )}
@@ -121,7 +144,7 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         {/* Member avatars — click to open member management (all roles). */}
         <TooltipProvider>
           <button
@@ -162,24 +185,36 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
 
         {/* Share (owner-only) */}
         {isOwner && (
-          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-            <Share2 className="mr-2 h-4 w-4" />
-            Share
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="sm:w-auto sm:px-2.5"
+            onClick={() => setShareOpen(true)}
+            aria-label="Share board"
+          >
+            <Share2 aria-hidden="true" />
+            <span className="hidden sm:inline">Share</span>
           </Button>
         )}
 
         {/* Activity feed */}
-        <Button variant="ghost" size="sm" onClick={onOpenActivity}>
-          <Activity className="mr-2 h-4 w-4" />
-          Activity
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="sm:w-auto sm:px-2.5"
+          onClick={onOpenActivity}
+          aria-label="Activity"
+        >
+          <Activity aria-hidden="true" />
+          <span className="hidden sm:inline">Activity</span>
         </Button>
 
         {/* Board actions (owner-only) */}
         {isOwner && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Board actions">
-                <MoreHorizontal className="h-4 w-4" />
+              <Button variant="ghost" size="icon-sm" aria-label="Board actions">
+                <MoreHorizontal aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -216,6 +251,6 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           onConfirm={handleDeleteBoard}
         />
       )}
-    </div>
+    </header>
   );
 }

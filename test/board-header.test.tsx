@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { BoardAction, BoardMemberWithProfile, BoardWithDetails } from '@/types';
@@ -46,11 +46,11 @@ function makeMember(role: Role): BoardMemberWithProfile {
   };
 }
 
-function makeBoard(role: Role): BoardWithDetails {
+function makeBoard(role: Role, title: string): BoardWithDetails {
   /** Only the fields `BoardProvider` and `BoardHeader` read; the rest is cast. */
   return {
     id: 'board-1',
-    title: 'QA board',
+    title,
     description: null,
     columns: [],
     members: [makeMember(role)],
@@ -68,8 +68,8 @@ function CaptureDispatch({
   return null;
 }
 
-function renderHeader(role: Role = 'OWNER') {
-  const board = makeBoard(role);
+function renderHeader(role: Role = 'OWNER', title = 'QA board') {
+  const board = makeBoard(role, title);
   const captured: { dispatch?: Dispatch<BoardAction> } = {};
   const user = userEvent.setup();
   render(
@@ -198,5 +198,106 @@ describe('BoardHeader', () => {
 
     expect(heading()).toHaveTextContent('QA board');
     expect(screen.queryByRole('button', { name: 'QA board' })).not.toBeInTheDocument();
+  });
+});
+
+describe('BoardHeader keyboard focus', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns focus to the title button after Enter saves a rename', async () => {
+    updateBoard.mockResolvedValue({ data: { ...makeBoard('OWNER', 'Roadmap'), title: 'Roadmap' } });
+    const { user } = renderHeader();
+
+    await rename(user, 'Roadmap');
+
+    await waitFor(() => expect(updateBoard).toHaveBeenCalledTimes(1));
+    // The Enter that committed must not also click the refocused button and reopen the editor.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Roadmap' })).toHaveFocus();
+  });
+
+  it('returns focus to the title button after Escape cancels', async () => {
+    const { user } = renderHeader();
+
+    await user.click(screen.getByRole('button', { name: 'QA board' }));
+    await user.type(screen.getByRole('textbox'), ' draft{Escape}');
+
+    expect(updateBoard).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'QA board' })).toHaveFocus();
+  });
+
+  it('leaves focus on the clicked element when the editor is blurred by a click-away', async () => {
+    const { user } = renderHeader();
+
+    await user.click(screen.getByRole('button', { name: 'QA board' }));
+    await user.click(screen.getByRole('button', { name: 'View members' }));
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View members' })).toHaveFocus();
+  });
+});
+
+describe('BoardHeader at narrow widths', () => {
+  const LONG_TITLE = 'A very long board title that would wrap one word per line'.slice(0, 50);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('stacks the title above the actions below sm', () => {
+    renderHeader();
+
+    expect(screen.getByRole('banner')).toHaveClass('flex-col', 'sm:flex-row');
+  });
+
+  it('truncates a long title instead of wrapping', () => {
+    renderHeader('OWNER', LONG_TITLE);
+
+    const button = screen.getByRole('button', { name: LONG_TITLE });
+    expect(LONG_TITLE).toHaveLength(50);
+    expect(button).toHaveClass('truncate');
+    expect(button).toHaveAttribute('title', LONG_TITLE);
+    expect(heading()).toHaveClass('min-w-0');
+  });
+
+  it('truncates a long title for a viewer too', () => {
+    renderHeader('VIEWER', LONG_TITLE);
+
+    const text = screen.getByText(LONG_TITLE);
+    expect(text).toHaveClass('truncate');
+    expect(text).toHaveAttribute('title', LONG_TITLE);
+    expect(heading()).toHaveClass('min-w-0');
+  });
+
+  it('lets the title editor fill the width below sm', async () => {
+    const { user } = renderHeader();
+
+    await user.click(screen.getByRole('button', { name: 'QA board' }));
+
+    expect(screen.getByRole('textbox', { name: 'Board title' })).toHaveClass('w-full', 'sm:w-64');
+  });
+
+  it('uses icon-only Share and Activity buttons with aria-labels below sm', () => {
+    renderHeader();
+
+    for (const [name, label] of [
+      ['Share board', 'Share'],
+      ['Activity', 'Activity'],
+    ] as const) {
+      const button = screen.getByRole('button', { name });
+      const visibleLabel = within(button).getByText(label);
+      expect(visibleLabel).toHaveClass('hidden', 'sm:inline');
+    }
+    expect(screen.getByRole('button', { name: 'Board actions' })).toBeInTheDocument();
+  });
+
+  it('gives a viewer no Share or Board actions buttons', () => {
+    renderHeader('VIEWER');
+
+    expect(screen.queryByRole('button', { name: 'Share board' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Board actions' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activity' })).toBeInTheDocument();
   });
 });
