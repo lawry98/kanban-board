@@ -70,6 +70,16 @@ export function parseSeedArgs(argv: readonly string[]): SeedTarget {
   return { userId: parsed.data };
 }
 
+/** `host:port` of a connection string, for telling the operator where a run writes. Never the credentials. */
+export function describeDatabaseTarget(connectionString: string | undefined): string {
+  try {
+    // `URL` raises on anything unparseable; an unreadable URL must not stop the seed or leak into output.
+    return new URL(connectionString ?? '').host || 'unknown host';
+  } catch {
+    return 'unknown host';
+  }
+}
+
 async function resolveProfileId(db: PrismaClient, target: SeedTarget): Promise<string> {
   const profile =
     'userId' in target
@@ -160,6 +170,18 @@ export async function seedDemoBoard(
         select: { id: true, title: true },
       });
 
+      // The feed orders by `createdAt` alone, so rows sharing a timestamp would show in an
+      // arbitrary order, and this seed can't repair that later. Stamp each row explicitly:
+      // the board first, then the tasks in demo order, 1 ms apart (`createManyAndReturn` makes
+      // no ordering promise, so rank by title rather than by the order the rows come back).
+      const taskRank = new Map(
+        DEMO_COLUMNS.flatMap((column) => column.tasks).map((task, i) => [task.title, i]),
+      );
+      const orderedTasks = [...tasks].sort(
+        (a, b) => (taskRank.get(a.title) ?? 0) - (taskRank.get(b.title) ?? 0),
+      );
+      const start = Date.now();
+
       // The activity feed reads `metadata.title`. Deliberately no analytics events: seeded
       // data must not count as product activation.
       await tx.activityLog.createMany({
@@ -171,15 +193,17 @@ export async function seedDemoBoard(
             entityType: 'board',
             entityId: board.id,
             metadata: { title: DEMO_BOARD_TITLE },
+            createdAt: new Date(start),
           },
-          ...tasks.map(
-            (task): Prisma.ActivityLogCreateManyInput => ({
+          ...orderedTasks.map(
+            (task, i): Prisma.ActivityLogCreateManyInput => ({
               boardId: board.id,
               userId: profileId,
               action: 'TASK_CREATED',
               entityType: 'task',
               entityId: task.id,
               metadata: { title: task.title },
+              createdAt: new Date(start + i + 1),
             }),
           ),
         ],
