@@ -50,7 +50,8 @@ export function activeInvitationWhere(now: Date = new Date()): Prisma.Invitation
  * `email_confirmed_at` proves the user controls the address. With it OFF, signup stamps
  * `email_confirmed_at` immediately, so anyone can register the invited address and pass
  * this check. Keep "Confirm email" enabled before relying on a bound invite. Nothing in
- * the UI sets `email` yet, so no invite is bound today.
+ * the UI sets `email` yet, but `createInvitation` accepts an optional `email` from its
+ * Server Action input, so a bound invite can be created if the action is called directly.
  */
 export function invitationEmailMatches(
   invitationEmail: string | null,
