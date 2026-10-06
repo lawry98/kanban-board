@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 
@@ -84,6 +84,16 @@ describe.each([
     expect(card).toHaveAccessibleDescription(/Assigned to Ada Lovelace/);
   });
 
+  it('opens once while Enter is held down (auto-repeat is ignored)', () => {
+    // A dialog closed by a held Enter returns focus here; its repeats must not reopen it.
+    const { card, onClick } = renderCard(canEdit);
+    fireEvent.keyDown(card, { key: 'Enter' });
+    fireEvent.keyDown(card, { key: 'Enter', repeat: true });
+    fireEvent.keyDown(card, { key: 'Enter', repeat: true });
+    fireEvent.keyUp(card, { key: 'Enter' });
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores an Enter that something else already handled', () => {
     const { card, onClick } = renderCard(canEdit);
     const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
@@ -102,7 +112,27 @@ describe('TaskCard Space key', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('is left to dnd on an editor card (Space lifts it) and never opens it', async () => {
+  // Like a native button: opening on keydown would move focus into the dialog, and Firefox
+  // then clicks whichever dialog button has focus when Space comes back up.
+  it('opens a viewer card on keyup, not keydown', async () => {
+    const user = userEvent.setup();
+    const { card, onClick } = renderCard(false);
+    card.focus();
+
+    await user.keyboard('[Space>]');
+    expect(onClick).not.toHaveBeenCalled();
+
+    await user.keyboard('[/Space]');
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops a viewer card's Space keydown from scrolling the page", () => {
+    const { card } = renderCard(false);
+    // fireEvent returns false when a handler called preventDefault().
+    expect(fireEvent.keyDown(card, { key: ' ' })).toBe(false);
+  });
+
+  it('is left to dnd on an editor card and never opens it', async () => {
     const user = userEvent.setup();
     const { card, onClick } = renderCard(true);
     card.focus();
@@ -110,7 +140,7 @@ describe('TaskCard Space key', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it('gives editors the drag instructions and viewers none', () => {
+  it('gives editors the drag instructions', () => {
     const { card } = renderCard(true);
     expect(card).toHaveAccessibleDescription(/space bar/i);
   });

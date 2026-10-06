@@ -68,12 +68,23 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
             aria-describedby={describedBy || undefined}
             onClick={() => onClick(task)}
             onKeyDown={(e) => {
-              // Enter opens. Space opens only a viewer's card: on an editor's it is dnd's
-              // lift key. Skip keys dnd already consumed (it preventDefaults Enter mid-drag)
-              // and keys bubbling up through a portal (React events do).
-              const opens = e.key === 'Enter' || (e.key === ' ' && !dragHandle);
-              if (!opens || e.defaultPrevented || e.target !== e.currentTarget) return;
-              e.preventDefault();
+              // Enter opens (once: a held Enter's repeats land here when the dialog closes).
+              // Space opens only a viewer's card, on keyup; on an editor's it is dnd's lift
+              // key. Skip keys dnd already consumed (it preventDefaults Enter mid-drag) and
+              // keys bubbling up through a portal (React events do).
+              if (e.defaultPrevented || e.target !== e.currentTarget) return;
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (!e.repeat) onClick(task);
+              } else if (e.key === ' ' && !dragHandle) {
+                e.preventDefault(); // no page scroll
+              }
+            }}
+            onKeyUp={(e) => {
+              // Like a native button: opening on keydown moves focus into the dialog, and
+              // Firefox then clicks the focused dialog button on this keyup.
+              if (e.key !== ' ' || dragHandle) return;
+              if (e.defaultPrevented || e.target !== e.currentTarget) return;
               onClick(task);
             }}
             className={cn(
