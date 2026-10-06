@@ -27,24 +27,24 @@
 
 ## File Map
 
-| File | Task | Responsibility |
-|---|---|---|
-| `lib/invitations.ts` (new) | 1 | TTL constant, expiry math, `isInvitationActive`, `activeInvitationWhere`, `invitationEmailMatches` — pure |
-| `app/actions/invitation-actions.ts` | 1, 5 | stamp expiry, email binding (T1); limiter call sites (T5) |
-| `app/join/[token]/page.tsx` | 1 | use shared `isInvitationActive` (drop local copy) |
-| `components/board/share-board-dialog.tsx` | 1 | expiry text |
-| `app/(dashboard)/board/[boardId]/page.tsx` | 2 | `cache()`d authorized loader shared by metadata + page |
-| `lib/rate-limit.ts` (new) | 3 | `enforceRateLimit`, `RateLimitError`, `RATE_LIMITS` |
-| `prisma/migrations/<ts>_rate_limits/migration.sql` (new), `prisma/schema.prisma` | 3 | `rate_limits` table + model |
-| `app/actions/{board,task,column,analytics}-actions.ts` | 3 | limiter call sites |
-| `lib/csp.ts` (new) | 4 | nonce + policy builder — pure |
-| `lib/supabase/middleware.ts` | 4 | accept forwarded request headers |
-| `proxy.ts` | 4, 6 | CSP on every response (T4); `next` param + bounce (T6) |
-| `app/layout.tsx` | 4 | read nonce (forces dynamic) → ThemeProvider |
-| `next.config.ts` | 4 | replace CSP TODO with pointer |
-| `lib/auth/redirects.ts` | 6 | harden `sanitizeNext` |
-| `app/(auth)/login/page.tsx` | 6 | carry `next` on the Sign-up link |
-| `CLAUDE.md`, `prisma/schema.prisma` (Invitation comments) | 7 | docs truthfulness |
+| File                                                                             | Task | Responsibility                                                                                            |
+| -------------------------------------------------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------- |
+| `lib/invitations.ts` (new)                                                       | 1    | TTL constant, expiry math, `isInvitationActive`, `activeInvitationWhere`, `invitationEmailMatches` — pure |
+| `app/actions/invitation-actions.ts`                                              | 1, 5 | stamp expiry, email binding (T1); limiter call sites (T5)                                                 |
+| `app/join/[token]/page.tsx`                                                      | 1    | use shared `isInvitationActive` (drop local copy)                                                         |
+| `components/board/share-board-dialog.tsx`                                        | 1    | expiry text                                                                                               |
+| `app/(dashboard)/board/[boardId]/page.tsx`                                       | 2    | `cache()`d authorized loader shared by metadata + page                                                    |
+| `lib/rate-limit.ts` (new)                                                        | 3    | `enforceRateLimit`, `RateLimitError`, `RATE_LIMITS`                                                       |
+| `prisma/migrations/<ts>_rate_limits/migration.sql` (new), `prisma/schema.prisma` | 3    | `rate_limits` table + model                                                                               |
+| `app/actions/{board,task,column,analytics}-actions.ts`                           | 3    | limiter call sites                                                                                        |
+| `lib/csp.ts` (new)                                                               | 4    | nonce + policy builder — pure                                                                             |
+| `lib/supabase/middleware.ts`                                                     | 4    | accept forwarded request headers                                                                          |
+| `proxy.ts`                                                                       | 4, 6 | CSP on every response (T4); `next` param + bounce (T6)                                                    |
+| `app/layout.tsx`                                                                 | 4    | read nonce (forces dynamic) → ThemeProvider                                                               |
+| `next.config.ts`                                                                 | 4    | replace CSP TODO with pointer                                                                             |
+| `lib/auth/redirects.ts`                                                          | 6    | harden `sanitizeNext`                                                                                     |
+| `app/(auth)/login/page.tsx`                                                      | 6    | carry `next` on the Sign-up link                                                                          |
+| `CLAUDE.md`, `prisma/schema.prisma` (Invitation comments)                        | 7    | docs truthfulness                                                                                         |
 
 Execution waves: **W1** Tasks 1, 2, 3, 4 in parallel (disjoint files) → **W2** Task 5 (needs 1 + 3) and Task 6 (needs 4) in parallel → **W3** Task 7.
 
@@ -53,6 +53,7 @@ Execution waves: **W1** Tasks 1, 2, 3, 4 in parallel (disjoint files) → **W2**
 ### Task 1: Invite expiry + email binding
 
 **Files:**
+
 - Create: `lib/invitations.ts`
 - Create: `test/invitations.test.ts`
 - Modify: `app/actions/invitation-actions.ts` (createInvitation ~L38-69, getInvitations ~L72-90, acceptInvitation ~L123-197; delete local `isInvitationActive` ~L26-31)
@@ -61,6 +62,7 @@ Execution waves: **W1** Tasks 1, 2, 3, 4 in parallel (disjoint files) → **W2**
 - Test: `test/collaboration-actions.test.ts`, `test/share-board-dialog.test.tsx`
 
 **Interfaces:**
+
 - Produces (Task 5 and docs rely on these exact names):
   - `INVITATION_TTL_DAYS = 7` (exported const)
   - `invitationExpiry(from?: Date): Date`
@@ -89,8 +91,15 @@ import {
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-10-06T12:00:00.000Z');
 
-function inv(overrides: Partial<{ revokedAt: Date | null; expiresAt: Date | null; createdAt: Date }> = {}) {
-  return { revokedAt: null, expiresAt: new Date(NOW.getTime() + DAY), createdAt: NOW, ...overrides };
+function inv(
+  overrides: Partial<{ revokedAt: Date | null; expiresAt: Date | null; createdAt: Date }> = {},
+) {
+  return {
+    revokedAt: null,
+    expiresAt: new Date(NOW.getTime() + DAY),
+    createdAt: NOW,
+    ...overrides,
+  };
 }
 
 describe('invitationExpiry', () => {
@@ -135,17 +144,39 @@ describe('activeInvitationWhere', () => {
 describe('invitationEmailMatches', () => {
   const confirmed = '2026-01-01T00:00:00Z';
   it('lets anyone accept an unbound invite', () => {
-    expect(invitationEmailMatches(null, { email: undefined, email_confirmed_at: undefined })).toBe(true);
+    expect(invitationEmailMatches(null, { email: undefined, email_confirmed_at: undefined })).toBe(
+      true,
+    );
   });
   it('matches the confirmed email case- and whitespace-insensitively', () => {
-    expect(invitationEmailMatches('ann@example.com', { email: ' Ann@Example.COM ', email_confirmed_at: confirmed })).toBe(true);
+    expect(
+      invitationEmailMatches('ann@example.com', {
+        email: ' Ann@Example.COM ',
+        email_confirmed_at: confirmed,
+      }),
+    ).toBe(true);
   });
   it('rejects a different email', () => {
-    expect(invitationEmailMatches('ann@example.com', { email: 'bob@example.com', email_confirmed_at: confirmed })).toBe(false);
+    expect(
+      invitationEmailMatches('ann@example.com', {
+        email: 'bob@example.com',
+        email_confirmed_at: confirmed,
+      }),
+    ).toBe(false);
   });
   it('rejects an unconfirmed or missing email', () => {
-    expect(invitationEmailMatches('ann@example.com', { email: 'ann@example.com', email_confirmed_at: undefined })).toBe(false);
-    expect(invitationEmailMatches('ann@example.com', { email: undefined, email_confirmed_at: confirmed })).toBe(false);
+    expect(
+      invitationEmailMatches('ann@example.com', {
+        email: 'ann@example.com',
+        email_confirmed_at: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      invitationEmailMatches('ann@example.com', {
+        email: undefined,
+        email_confirmed_at: confirmed,
+      }),
+    ).toBe(false);
   });
 });
 ```
@@ -233,13 +264,13 @@ export function invitationEmailMatches(
   - `acceptInvitation`, immediately after the existing `if (!invitation || !isInvitationActive(invitation)) throw …` block:
 
 ```ts
-    // A bound invite is for one person, not whoever holds the link. Checked before
-    // the existing-member shortcut so the answer doesn't depend on membership.
-    if (!invitationEmailMatches(invitation.email, user)) {
-      throw new PublicError(
-        'This invite was sent to a different email address. Sign in with that account to join.',
-      );
-    }
+// A bound invite is for one person, not whoever holds the link. Checked before
+// the existing-member shortcut so the answer doesn't depend on membership.
+if (!invitationEmailMatches(invitation.email, user)) {
+  throw new PublicError(
+    'This invite was sent to a different email address. Sign in with that account to join.',
+  );
+}
 ```
 
 - [ ] **Step 8: Join page** `app/join/[token]/page.tsx`: delete the local `isActive` function; `import { isInvitationActive } from '@/lib/invitations';`; `const linkActive = invitation !== null && isInvitationActive(invitation);`. The `findUnique` uses `include`, so `createdAt` is already on the row — confirm it typechecks. Change nothing else on this page.
@@ -266,10 +297,12 @@ git commit -m "feat(invitations): expire invite links after 7 days and bind emai
 ### Task 2: Board metadata authorization
 
 **Files:**
+
 - Modify: `app/(dashboard)/board/[boardId]/page.tsx` (whole file is ~64 lines)
 - Create: `test/board-page.test.ts`
 
 **Interfaces:**
+
 - Produces: nothing exported beyond the existing default page + `generateMetadata`. The loader is a module-private `const`.
 
 Today `generateMetadata` runs `prisma.board.findUnique({ where: { id: boardId }, select: { title: true } })` with no auth, so a signed-in non-member who knows a board id reads its title in `<title>`. The page itself checks membership inline.
@@ -402,7 +435,12 @@ const loadBoardForViewer = cache(async (boardId: string): Promise<BoardForViewer
   const membership = await prisma.boardMember.findFirst({ where: { boardId, userId: user.id } });
   if (!membership) return { status: 'not-found' };
 
-  const board = await prisma.board.findUnique({ where: { id: boardId }, include: { /* unchanged */ } });
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    include: {
+      /* unchanged */
+    },
+  });
   if (!board) return { status: 'not-found' };
 
   return { status: 'ok', userId: user.id, role: membership.role, board };
@@ -447,6 +485,7 @@ git commit -m "fix(board): stop leaking board titles to non-members via page met
 ### Task 3: Postgres rate limiter + non-invitation call sites
 
 **Files:**
+
 - Create: `lib/rate-limit.ts`, `test/rate-limit.test.ts`
 - Create: `prisma/migrations/<UTC YYYYMMDDHHMMSS>_rate_limits/migration.sql` (timestamp from `date -u +%Y%m%d%H%M%S` at creation)
 - Modify: `prisma/schema.prisma` (append `RateLimit` model — touch nothing else in the file)
@@ -455,6 +494,7 @@ git commit -m "fix(board): stop leaking board titles to non-members via page met
 - Do NOT touch: `app/actions/invitation-actions.ts`, `test/collaboration-actions.test.ts`, `test/analytics.test.ts` (Task 5 owns those).
 
 **Interfaces:**
+
 - Produces (Task 5 uses):
   - `enforceRateLimit(userId: string, bucket: RateLimitBucket): Promise<void>` — throws `RateLimitError` when over the limit; resolves (fails open) on any limiter error
   - `RateLimitError extends PublicError` with `readonly retryAfterSeconds: number`; message `Too many requests, try again in ${n}s` (n < 60) or `Too many requests, try again in ${Math.ceil(n / 60)} min`
@@ -486,21 +526,30 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('enforceRateLimit', () => {
-  it.each(Object.entries(RATE_LIMITS))('%s: allows `limit` calls, then blocks', async (bucket, { limit }) => {
-    let hits = 0;
-    queryRaw.mockImplementation(async () => [{ hits: ++hits, retry_after: 30 }]);
-    for (let i = 0; i < limit; i++) {
-      await expect(enforceRateLimit(USER, bucket as keyof typeof RATE_LIMITS)).resolves.toBeUndefined();
-    }
-    await expect(enforceRateLimit(USER, bucket as keyof typeof RATE_LIMITS)).rejects.toBeInstanceOf(RateLimitError);
-  });
+  it.each(Object.entries(RATE_LIMITS))(
+    '%s: allows `limit` calls, then blocks',
+    async (bucket, { limit }) => {
+      let hits = 0;
+      queryRaw.mockImplementation(async () => [{ hits: ++hits, retry_after: 30 }]);
+      for (let i = 0; i < limit; i++) {
+        await expect(
+          enforceRateLimit(USER, bucket as keyof typeof RATE_LIMITS),
+        ).resolves.toBeUndefined();
+      }
+      await expect(
+        enforceRateLimit(USER, bucket as keyof typeof RATE_LIMITS),
+      ).rejects.toBeInstanceOf(RateLimitError);
+    },
+  );
 
   it('carries retry-after and a sanitized message through toActionError', async () => {
     queryRaw.mockResolvedValue([{ hits: 121, retry_after: 42 }]);
     const err = await enforceRateLimit(USER, 'mutation').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PublicError);
     expect((err as RateLimitError).retryAfterSeconds).toBe(42);
-    expect(toActionError('x', err, 'fallback')).toEqual({ error: 'Too many requests, try again in 42s' });
+    expect(toActionError('x', err, 'fallback')).toEqual({
+      error: 'Too many requests, try again in 42s',
+    });
   });
 
   it('formats long waits in minutes', () => {
@@ -510,7 +559,10 @@ describe('enforceRateLimit', () => {
   it('fails open when the store errors, logging the bucket', async () => {
     queryRaw.mockRejectedValue(new Error('relation "rate_limits" does not exist'));
     await expect(enforceRateLimit(USER, 'invitationAccept')).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('invitationAccept'), expect.any(Error));
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('invitationAccept'),
+      expect.any(Error),
+    );
   });
 
   it('fails open on a synchronous throw, an empty result, or a garbled row', async () => {
@@ -718,21 +770,21 @@ In `test/task-actions.test.ts` add: `moveTask` calls `enforceRateLimit(USER_ID, 
 
 - [ ] **Step 7: Call sites.** Add `import { enforceRateLimit } from '@/lib/rate-limit';` and one line `await enforceRateLimit(user.id, '<bucket>');` immediately after the guard that first yields `user`, inside the existing `try`. Destructure `user` from the guard where it's currently discarded.
 
-| Action | Guard | Bucket |
-|---|---|---|
-| `board-actions.ts` `createBoard` | `requireAuth()` (before input parse) | `mutation` |
-| `updateBoard` | `requireBoardAccess(id, EDITOR_ROLES)` | `mutation` |
-| `deleteBoard` | `requireBoardAccess(id, OWNER_ROLES)` (keep `redirect` outside the try) | `mutation` |
-| `addBoardMember` | `requireBoardAccess(id, OWNER_ROLES)` | `memberAdd` |
-| `removeBoardMember` | `requireBoardAccess(id, OWNER_ROLES)` | `mutation` |
-| `changeMemberRole` | `requireBoardAccess(id, OWNER_ROLES)` | `mutation` |
-| `leaveBoard` | after `requireBoardMember` | `mutation` |
-| `task-actions.ts` `createTask` | `requireColumnAccess(…, EDITOR_ROLES)` | `mutation` |
-| `updateTask` / `moveTask` / `deleteTask` | `requireTaskAccess(…, EDITOR_ROLES)` | `mutation` |
-| `column-actions.ts` `createColumn` | `requireBoardAccess(boardId, EDITOR_ROLES)` | `mutation` |
-| `updateColumn` / `deleteColumn` | `requireColumnAccess(id, EDITOR_ROLES)` | `mutation` |
-| `reorderColumns` | right after `requireAuth()` | `mutation` |
-| `analytics-actions.ts` `trackSignedUp` | `requireAuth()` | `mutation` |
+| Action                                   | Guard                                                                   | Bucket      |
+| ---------------------------------------- | ----------------------------------------------------------------------- | ----------- |
+| `board-actions.ts` `createBoard`         | `requireAuth()` (before input parse)                                    | `mutation`  |
+| `updateBoard`                            | `requireBoardAccess(id, EDITOR_ROLES)`                                  | `mutation`  |
+| `deleteBoard`                            | `requireBoardAccess(id, OWNER_ROLES)` (keep `redirect` outside the try) | `mutation`  |
+| `addBoardMember`                         | `requireBoardAccess(id, OWNER_ROLES)`                                   | `memberAdd` |
+| `removeBoardMember`                      | `requireBoardAccess(id, OWNER_ROLES)`                                   | `mutation`  |
+| `changeMemberRole`                       | `requireBoardAccess(id, OWNER_ROLES)`                                   | `mutation`  |
+| `leaveBoard`                             | after `requireBoardMember`                                              | `mutation`  |
+| `task-actions.ts` `createTask`           | `requireColumnAccess(…, EDITOR_ROLES)`                                  | `mutation`  |
+| `updateTask` / `moveTask` / `deleteTask` | `requireTaskAccess(…, EDITOR_ROLES)`                                    | `mutation`  |
+| `column-actions.ts` `createColumn`       | `requireBoardAccess(boardId, EDITOR_ROLES)`                             | `mutation`  |
+| `updateColumn` / `deleteColumn`          | `requireColumnAccess(id, EDITOR_ROLES)`                                 | `mutation`  |
+| `reorderColumns`                         | right after `requireAuth()`                                             | `mutation`  |
+| `analytics-actions.ts` `trackSignedUp`   | `requireAuth()`                                                         | `mutation`  |
 
 Not limited (reads, or no user): `getBoardData`, `getActivityLogs`, `auth-actions.ts` `signOut`.
 
@@ -750,10 +802,12 @@ git commit -m "feat(security): rate-limit mutation server actions with a Postgre
 ### Task 4: Per-request nonce Content-Security-Policy
 
 **Files:**
+
 - Create: `lib/csp.ts`, `test/csp.test.ts`, `test/supabase-middleware.test.ts`
 - Modify: `proxy.ts`, `lib/supabase/middleware.ts`, `app/layout.tsx`, `next.config.ts` (comment only), `test/proxy.test.ts`
 
 **Interfaces:**
+
 - Produces (Task 6 edits proxy.ts after you):
   - `NONCE_HEADER = 'x-nonce'`, `CSP_HEADER = 'Content-Security-Policy'`
   - `generateNonce(): string`
@@ -784,8 +838,12 @@ function directives(policy: string): Map<string, string[]> {
 }
 
 describe('buildContentSecurityPolicy', () => {
-  const prod = directives(buildContentSecurityPolicy({ nonce: 'abc123', supabaseUrl: SUPABASE, isDev: false }));
-  const dev = directives(buildContentSecurityPolicy({ nonce: 'abc123', supabaseUrl: SUPABASE, isDev: true }));
+  const prod = directives(
+    buildContentSecurityPolicy({ nonce: 'abc123', supabaseUrl: SUPABASE, isDev: false }),
+  );
+  const dev = directives(
+    buildContentSecurityPolicy({ nonce: 'abc123', supabaseUrl: SUPABASE, isDev: true }),
+  );
 
   it('allows scripts only by nonce + strict-dynamic in production', () => {
     expect(prod.get('script-src')).toEqual(["'self'", "'nonce-abc123'", "'strict-dynamic'"]);
@@ -811,8 +869,18 @@ describe('buildContentSecurityPolicy', () => {
     expect(dev.has('upgrade-insecure-requests')).toBe(false);
   });
   it('maps a local http Supabase to ws', () => {
-    const local = directives(buildContentSecurityPolicy({ nonce: 'n', supabaseUrl: 'http://127.0.0.1:54321', isDev: true }));
-    expect(local.get('connect-src')).toEqual(["'self'", 'http://127.0.0.1:54321', 'ws://127.0.0.1:54321']);
+    const local = directives(
+      buildContentSecurityPolicy({
+        nonce: 'n',
+        supabaseUrl: 'http://127.0.0.1:54321',
+        isDev: true,
+      }),
+    );
+    expect(local.get('connect-src')).toEqual([
+      "'self'",
+      'http://127.0.0.1:54321',
+      'ws://127.0.0.1:54321',
+    ]);
   });
 });
 
@@ -860,7 +928,13 @@ export function buildContentSecurityPolicy({ nonce, supabaseUrl, isDev }: CspOpt
   const directives: [string, ...string[]][] = [
     ['default-src', "'self'"],
     // 'strict-dynamic' lets nonce-trusted Next chunks load the rest. React needs eval in dev only.
-    ['script-src', "'self'", `'nonce-${nonce}'`, "'strict-dynamic'", ...(isDev ? ["'unsafe-eval'"] : [])],
+    [
+      'script-src',
+      "'self'",
+      `'nonce-${nonce}'`,
+      "'strict-dynamic'",
+      ...(isDev ? ["'unsafe-eval'"] : []),
+    ],
     // No nonce here on purpose (it would void 'unsafe-inline'): sonner, Radix and
     // @hello-pangea/dnd inject un-nonced <style> tags, and SSR style attributes can't carry one.
     ['style-src', "'self'", "'unsafe-inline'"],
@@ -977,10 +1051,12 @@ git commit -m "feat(security): add per-request nonce Content-Security-Policy" --
 **Prerequisites:** Tasks 1 and 3 committed.
 
 **Files:**
+
 - Modify: `app/actions/invitation-actions.ts`
 - Test: `test/collaboration-actions.test.ts`, `test/analytics.test.ts`
 
 **Interfaces:**
+
 - Consumes: `enforceRateLimit(userId, bucket)`, `RateLimitError` from `@/lib/rate-limit` (Task 3); Task 1's `acceptInvitation` flow (`requireAuth()` → token lookup → `isInvitationActive` → `invitationEmailMatches` → …).
 
 - [ ] **Step 1: Failing tests.** Add to both `test/collaboration-actions.test.ts` and `test/analytics.test.ts`:
@@ -993,12 +1069,13 @@ vi.mock('@/lib/rate-limit', async (importOriginal) => ({
 ```
 
 In `test/collaboration-actions.test.ts` (`const mockedLimit = enforceRateLimit as unknown as Mock`):
-  - `createInvitation` (as owner) calls `mockedLimit` with `(USER_ID, 'invitationCreate')`; when it rejects with `new RateLimitError(600)`, returns `{ error: 'Too many requests, try again in 10 min' }` and `db.invitation.create` is not called.
-  - `acceptInvitation('tok_abc')` calls it with `(USER_ID, 'invitationAccept')`; when blocked, `db.invitation.findUnique` is not called (the token is never looked up) and the error is returned.
-  - `revokeInvitation` calls it with `(USER_ID, 'mutation')`.
-  - `addBoardMember` calls it with `(USER_ID, 'memberAdd')`; `removeBoardMember` / `changeMemberRole` with `'mutation'` (one assertion each is enough).
-  - Signed out (`getUser` returns no user): `acceptInvitation` does not call `mockedLimit`.
-  - The limiter is never called with the token: `expect(JSON.stringify(mockedLimit.mock.calls)).not.toContain('tok_abc')`.
+
+- `createInvitation` (as owner) calls `mockedLimit` with `(USER_ID, 'invitationCreate')`; when it rejects with `new RateLimitError(600)`, returns `{ error: 'Too many requests, try again in 10 min' }` and `db.invitation.create` is not called.
+- `acceptInvitation('tok_abc')` calls it with `(USER_ID, 'invitationAccept')`; when blocked, `db.invitation.findUnique` is not called (the token is never looked up) and the error is returned.
+- `revokeInvitation` calls it with `(USER_ID, 'mutation')`.
+- `addBoardMember` calls it with `(USER_ID, 'memberAdd')`; `removeBoardMember` / `changeMemberRole` with `'mutation'` (one assertion each is enough).
+- Signed out (`getUser` returns no user): `acceptInvitation` does not call `mockedLimit`.
+- The limiter is never called with the token: `expect(JSON.stringify(mockedLimit.mock.calls)).not.toContain('tok_abc')`.
 
 Run `pnpm vitest run test/collaboration-actions.test.ts` — the invitation-bucket tests FAIL (board-actions ones already pass from Task 3).
 
@@ -1023,10 +1100,12 @@ git commit -m "feat(security): apply stricter rate limits to invite create and a
 **Prerequisites:** Task 4 committed (you edit the CSP-aware `proxy.ts`; keep every `withCsp(...)` wrapper).
 
 **Files:**
+
 - Modify: `lib/auth/redirects.ts` (`sanitizeNext`), `proxy.ts`, `app/(auth)/login/page.tsx` (Sign-up link only)
 - Test: `test/collaboration-validations.test.ts` (sanitizeNext block), `test/proxy.test.ts`, `test/auth-callback-route.test.ts`, create `test/login-page.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `withCsp` in `proxy.ts` (Task 4); `ROUTES`, `DEFAULT_REDIRECT`, `sanitizeNext` in `lib/auth/redirects.ts`.
 - Produces: `sanitizeNext(next: string | null | undefined): string` — same signature, stricter.
 
@@ -1035,26 +1114,36 @@ Context: login/register are client components that already read `?next`, run `sa
 - [ ] **Step 1: Failing sanitizeNext tests** — extend the `describe('sanitizeNext')` block in `test/collaboration-validations.test.ts`:
 
 ```ts
-  it('rejects control characters the URL parser would strip into //host', () => {
-    for (const evil of ['/\t/evil.com', '/\n/evil.com', '/\r\n/evil.com', '/\t\\evil.com', '/\u0000/x']) {
-      expect(sanitizeNext(evil)).toBe('/boards');
-      expect(new URL(sanitizeNext(evil), 'https://app.example.com').origin).toBe('https://app.example.com');
-    }
-  });
+it('rejects control characters the URL parser would strip into //host', () => {
+  for (const evil of [
+    '/\t/evil.com',
+    '/\n/evil.com',
+    '/\r\n/evil.com',
+    '/\t\\evil.com',
+    '/\u0000/x',
+  ]) {
+    expect(sanitizeNext(evil)).toBe('/boards');
+    expect(new URL(sanitizeNext(evil), 'https://app.example.com').origin).toBe(
+      'https://app.example.com',
+    );
+  }
+});
 
-  it('rejects any backslash and dot-segment tricks that normalize to //host', () => {
-    expect(sanitizeNext('/foo\\bar')).toBe('/boards');
-    expect(sanitizeNext('/..//evil.com')).toBe('/boards');
-    expect(sanitizeNext('/.//evil.com')).toBe('/boards');
-  });
+it('rejects any backslash and dot-segment tricks that normalize to //host', () => {
+  expect(sanitizeNext('/foo\\bar')).toBe('/boards');
+  expect(sanitizeNext('/..//evil.com')).toBe('/boards');
+  expect(sanitizeNext('/.//evil.com')).toBe('/boards');
+});
 
-  it('keeps encoded slashes as a same-origin path', () => {
-    expect(new URL(sanitizeNext('/%2F%2Fevil.com'), 'https://app.example.com').origin).toBe('https://app.example.com');
-  });
+it('keeps encoded slashes as a same-origin path', () => {
+  expect(new URL(sanitizeNext('/%2F%2Fevil.com'), 'https://app.example.com').origin).toBe(
+    'https://app.example.com',
+  );
+});
 
-  it('preserves query and hash', () => {
-    expect(sanitizeNext('/board/xyz?tab=1#c')).toBe('/board/xyz?tab=1#c');
-  });
+it('preserves query and hash', () => {
+  expect(sanitizeNext('/board/xyz?tab=1#c')).toBe('/board/xyz?tab=1#c');
+});
 ```
 
 Run `pnpm vitest run test/collaboration-validations.test.ts` — FAIL.
@@ -1094,7 +1183,7 @@ export function sanitizeNext(next: string | null | undefined): string {
   - signed-out HEAD `/board/abc` → carries `next=/board/abc`;
   - signed-out GET `/boards` → exactly `/login` (no `next` — it's the default destination);
   - signed-out POST `/board/abc` → exactly `/login`, no `next`;
-  - signed-out GET of raw `new NextRequest(\`${ORIGIN}//evil.com\`)` → `/login`, no `next`;
+  - signed-out GET of raw `new NextRequest(\`${ORIGIN}//evil.com\`)`→`/login`, no `next`;
   - signed-in GET `/login?next=%2Fboard%2Fabc` → `/board/abc`; same for `/register?next=%2Fboard%2Fabc`;
   - signed-in GET `/login?next=` each of `%2F%09%2Fevil.com`, `%2F%2Fevil.com`, `https%3A%2F%2Fevil.com` → path `/boards` and Location origin `https://app.example.com`;
   - signed-in GET `/login?next=%2Flogin` → `/boards` (no bounce back onto an auth page);
@@ -1126,7 +1215,7 @@ function postLoginUrl(request: NextRequest): URL {
 
 Use `loginUrl(request)` in the signed-out branch and `postLoginUrl(request)` in the signed-in bounce, both still through `redirectWithCookies` and `withCsp`.
 
-- [ ] **Step 6: Login page Sign-up link.** In `app/(auth)/login/page.tsx`, the "Sign up" link carries `next` only when the URL had one: `href={searchParams.get('next') ? \`${ROUTES.register}?next=${encodeURIComponent(next)}\` : ROUTES.register}` (use the already-sanitized `next`; fix the typed-route type the same way `app/join/[token]/page.tsx` builds its `?next=` links). Change nothing else on the page.
+- [ ] **Step 6: Login page Sign-up link.** In `app/(auth)/login/page.tsx`, the "Sign up" link carries `next` only when the URL had one: `href={searchParams.get('next') ? \`${ROUTES.register}?next=${encodeURIComponent(next)}\` : ROUTES.register}`(use the already-sanitized`next`; fix the typed-route type the same way `app/join/[token]/page.tsx`builds its`?next=` links). Change nothing else on the page.
 
 - [ ] **Step 7: Login page test** `test/login-page.test.tsx` — mirror `test/register-page.test.tsx`'s mocks (`next/navigation` with a controllable `useSearchParams` and `useRouter().push`, and `@/lib/supabase/client` `createClient`):
   - `?next=%2Fboard%2Fabc`: submit valid credentials (`signInWithPassword` resolves `{ error: null }`) → `push('/board/abc')`;
@@ -1150,6 +1239,7 @@ git commit -m "fix(auth): return to the original page after login and close a ne
 **Prerequisites:** Tasks 1–6 committed.
 
 **Files:**
+
 - Modify: `CLAUDE.md`, `prisma/schema.prisma` (Invitation model comments only)
 
 CLAUDE.md says a doc that lies is worse than none, and requires doc changes in the same change set. Read each changed module before describing it; describe the code as it is.
