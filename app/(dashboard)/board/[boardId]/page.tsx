@@ -64,14 +64,9 @@ const loadBoardForViewer = cache(async (boardId: string): Promise<BoardForViewer
 
 export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
   const { boardId } = await params;
-  try {
-    const result = await loadBoardForViewer(boardId);
-    return { title: result.status === 'ok' ? result.board.title : 'Board' };
-  } catch (error) {
-    // The page renders the real failure; the tab title just stays generic.
-    console.error('board generateMetadata error:', error);
-    return { title: 'Board' };
-  }
+  // Unexpected failures propagate rather than masquerading as a missing board.
+  const result = await loadBoardForViewer(boardId);
+  return { title: result.status === 'ok' ? result.board.title : 'Board' };
 }
 
 export default async function BoardPage({ params }: BoardPageProps) {

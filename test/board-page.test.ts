@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
 import type { Mock } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/app/(dashboard)/board/[boardId]/board-view', () => ({ BoardView: () =
 import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
-import BoardPage, { generateMetadata } from '@/app/(dashboard)/board/[boardId]/page';
+import BoardPage from '@/app/(dashboard)/board/[boardId]/page';
 
 const BOARD_ID = '11111111-1111-4111-8111-111111111111';
 const db = prisma as unknown as { board: { findUnique: Mock }; boardMember: { findFirst: Mock } };
@@ -32,43 +33,25 @@ function signInAs(user: { id: string } | null): void {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-describe('board page generateMetadata', () => {
-  it("uses the board's title for a member", async () => {
-    signInAs({ id: 'u1' });
-    db.boardMember.findFirst.mockResolvedValue({ id: 'm1', role: 'VIEWER' });
-    db.board.findUnique.mockResolvedValue({ id: BOARD_ID, title: 'Secret roadmap' });
-    expect(await generateMetadata(props)).toEqual({ title: 'Secret roadmap' });
-  });
-
-  it("returns 'Board' to a non-member without ever loading the board", async () => {
-    signInAs({ id: 'intruder' });
-    db.boardMember.findFirst.mockResolvedValue(null);
-    expect(await generateMetadata(props)).toEqual({ title: 'Board' });
-    expect(db.board.findUnique).not.toHaveBeenCalled();
-  });
-
-  it("returns 'Board' when signed out", async () => {
-    signInAs(null);
-    expect(await generateMetadata(props)).toEqual({ title: 'Board' });
-    expect(db.board.findUnique).not.toHaveBeenCalled();
-  });
-
-  it("returns 'Board' when the lookup fails", async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    signInAs({ id: 'u1' });
-    db.boardMember.findFirst.mockRejectedValue(new Error('db down'));
-    expect(await generateMetadata(props)).toEqual({ title: 'Board' });
-  });
+  // Back to each mock's factory implementation (notFound/redirect still throw); drops any
+  // prisma/createClient implementation a previous test set.
+  vi.resetAllMocks();
 });
 
 describe('board page', () => {
+  it('renders the board for a member with their user id and role', async () => {
+    const board = { id: BOARD_ID, title: 'Roadmap', columns: [], members: [] };
+    signInAs({ id: 'u1' });
+    db.boardMember.findFirst.mockResolvedValue({ id: 'm1', role: 'EDITOR' });
+    db.board.findUnique.mockResolvedValue(board);
+
+    const element = (await BoardPage(props)) as ReactElement;
+
+    expect(element.props).toEqual({ board, currentUserId: 'u1', userRole: 'EDITOR' });
+    expect(notFound).not.toHaveBeenCalled();
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
   it('404s a non-member', async () => {
     signInAs({ id: 'intruder' });
     db.boardMember.findFirst.mockResolvedValue(null);
