@@ -38,6 +38,10 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const addTaskButtonRef = useRef<HTMLButtonElement>(null);
+  // Set when the composer closes by the user's choice; the Add task button only remounts
+  // on the next render, so the effect below focuses it then.
+  const focusAddTaskRef = useRef(false);
   // Set by the menu's Rename item; the editor opens once the menu has finished closing.
   const renameRequestedRef = useRef(false);
   // True while the editor is closing. Moving focus off the input fires its blur, which
@@ -52,6 +56,18 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   useEffect(() => {
     columnsRef.current = state.columns;
   }, [state.columns]);
+
+  useEffect(() => {
+    if (isAddingTask || !focusAddTaskRef.current) return;
+    focusAddTaskRef.current = false;
+    addTaskButtonRef.current?.focus();
+  }, [isAddingTask]);
+
+  /** Seeds the draft from the current title: a collaborator may have renamed the column. */
+  function openRename() {
+    setTitleValue(column.title);
+    setIsEditingTitle(true);
+  }
 
   async function handleRenameColumn({ restoreFocus = false } = {}) {
     if (closingTitleEditRef.current) return;
@@ -91,37 +107,50 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   }
 
   async function handleDeleteColumn() {
-    const result = await deleteColumn(column.id);
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await deleteColumn(column.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      // This column's menu button is about to go: the next column's takes focus, else the previous.
+      const columns = columnsRef.current;
+      const index = columns.findIndex((col) => col.id === column.id);
+      const neighbour = index === -1 ? undefined : (columns[index + 1] ?? columns[index - 1]);
+      confirmReturnFocusIdRef.current = neighbour ? columnActionsId(neighbour.id) : null;
+      dispatch({ type: 'DELETE_COLUMN', payload: { columnId: column.id } });
+      toast.success('Column deleted');
+    } catch (err) {
+      console.error('deleteColumn failed:', err);
+      toast.error('Failed to delete column');
     }
-    // This column's menu button is about to go: the next column's takes focus, else the previous.
-    const columns = columnsRef.current;
-    const index = columns.findIndex((col) => col.id === column.id);
-    const neighbour = index === -1 ? undefined : (columns[index + 1] ?? columns[index - 1]);
-    confirmReturnFocusIdRef.current = neighbour ? columnActionsId(neighbour.id) : null;
-    dispatch({ type: 'DELETE_COLUMN', payload: { columnId: column.id } });
-    toast.success('Column deleted');
+  }
+
+  function closeComposer() {
+    setIsAddingTask(false);
+    setNewTaskTitle('');
+    focusAddTaskRef.current = true;
   }
 
   async function handleCreateTask() {
     if (!newTaskTitle.trim() || isCreatingTask) return;
     setIsCreatingTask(true);
-
-    const result = await createTask({ columnId: column.id, title: newTaskTitle.trim() });
-    setIsCreatingTask(false);
-
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await createTask({ columnId: column.id, title: newTaskTitle.trim() });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      if (result.data) {
+        dispatch({ type: 'ADD_TASK', payload: result.data });
+      }
+      closeComposer();
+    } catch (err) {
+      console.error('createTask failed:', err);
+      toast.error('Failed to create task');
+    } finally {
+      setIsCreatingTask(false);
     }
-
-    if (result.data) {
-      dispatch({ type: 'ADD_TASK', payload: result.data });
-    }
-    setNewTaskTitle('');
-    setIsAddingTask(false);
   }
 
   return (
@@ -141,6 +170,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               value={titleValue}
               onChange={(e) => setTitleValue(e.target.value)}
               aria-label="Column name"
+              maxLength={100}
               onBlur={() => handleRenameColumn()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleRenameColumn({ restoreFocus: true });
@@ -152,7 +182,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
           ) : (
             <h3
               className={`truncate text-sm font-medium ${canEdit ? 'hover:text-foreground/70 cursor-pointer' : ''}`}
-              onClick={() => canEdit && setIsEditingTitle(true)}
+              onClick={() => canEdit && openRename()}
             >
               {column.title}
             </h3>
@@ -188,7 +218,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
                 // off the input, and on close Radix refocuses this trigger — either blur
                 // would end the edit before it starts.
                 event.preventDefault();
-                setIsEditingTitle(true);
+                openRename();
               }}
             >
               <DropdownMenuItem
@@ -245,15 +275,15 @@ export function Column({ column, onTaskClick }: ColumnProps) {
                       onChange={(e) => setNewTaskTitle(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handleCreateTask();
-                        if (e.key === 'Escape') {
-                          setIsAddingTask(false);
-                          setNewTaskTitle('');
-                        }
+                        if (e.key === 'Escape') closeComposer();
                       }}
                       placeholder="Task title…"
                       aria-label="Task title"
+                      maxLength={255}
                       autoFocus
-                      disabled={isCreatingTask}
+                      // Not `disabled`: that drops focus to <body>, and on a failure the
+                      // user would have to find their way back. The handler guards reentry.
+                      readOnly={isCreatingTask}
                     />
                     <div className="flex gap-2">
                       <Button
@@ -263,20 +293,14 @@ export function Column({ column, onTaskClick }: ColumnProps) {
                       >
                         {isCreatingTask ? 'Adding…' : 'Add task'}
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setIsAddingTask(false);
-                          setNewTaskTitle('');
-                        }}
-                      >
+                      <Button size="sm" variant="ghost" onClick={closeComposer}>
                         Cancel
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <Button
+                    ref={addTaskButtonRef}
                     variant="ghost"
                     size="sm"
                     className="text-muted-foreground hover:text-foreground w-full justify-start"

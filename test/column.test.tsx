@@ -109,7 +109,93 @@ describe('Column menu', () => {
     const user = userEvent.setup();
     renderColumn();
     await user.click(screen.getByRole('button', { name: 'Add task' }));
-    expect(screen.getByRole('textbox', { name: 'Task title' })).toHaveFocus();
+    const input = screen.getByRole('textbox', { name: 'Task title' });
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute('maxlength', '255');
+  });
+});
+
+describe('Column add task', () => {
+  async function openComposer(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'Add task' }));
+    return screen.getByRole('textbox', { name: 'Task title' });
+  }
+
+  async function expectFocusBackOnAddTask() {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add task' })).toHaveFocus());
+    expect(screen.queryByRole('textbox', { name: 'Task title' })).not.toBeInTheDocument();
+  }
+
+  it('closes and returns focus to Add task after a create', async () => {
+    createTask.mockResolvedValue({ data: makeTask('t1', 'Write launch post') });
+    const user = userEvent.setup();
+    renderColumn();
+
+    await user.type(await openComposer(user), 'Write launch post{Enter}');
+
+    await expectFocusBackOnAddTask();
+    expect(createTask).toHaveBeenCalledWith({ columnId: COLUMN.id, title: 'Write launch post' });
+  });
+
+  it('closes and returns focus to Add task on Escape', async () => {
+    const user = userEvent.setup();
+    renderColumn();
+
+    await user.type(await openComposer(user), 'Draft{Escape}');
+
+    await expectFocusBackOnAddTask();
+    expect(createTask).not.toHaveBeenCalled();
+  });
+
+  it('closes and returns focus to Add task on Cancel', async () => {
+    const user = userEvent.setup();
+    renderColumn();
+
+    await openComposer(user);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await expectFocusBackOnAddTask();
+  });
+
+  it('keeps focus in the input while the create is in flight and after it fails', async () => {
+    let finish!: (result: { error: string }) => void;
+    createTask.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const user = userEvent.setup();
+    renderColumn();
+
+    const input = await openComposer(user);
+    await user.type(input, 'Write launch post{Enter}');
+
+    // Read-only, not disabled: a disabled input drops focus to <body>.
+    expect(input).toHaveAttribute('readonly');
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+
+    await act(async () => finish({ error: 'Not allowed' }));
+
+    expect(toastError).toHaveBeenCalledWith('Not allowed');
+    expect(input).toHaveFocus();
+    expect(input).not.toHaveAttribute('readonly');
+    expect(input).toHaveValue('Write launch post');
+  });
+
+  it('toasts and can retry when the create rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    createTask.mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup();
+    renderColumn();
+
+    const input = await openComposer(user);
+    await user.type(input, 'Write launch post{Enter}');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Failed to create task'));
+    expect(consoleError).toHaveBeenCalled();
+    expect(input).not.toHaveAttribute('readonly');
+
+    createTask.mockResolvedValue({ data: makeTask('t1', 'Write launch post') });
+    await user.click(screen.getByRole('button', { name: 'Add task' }));
+    await expectFocusBackOnAddTask();
+    expect(createTask).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -208,6 +294,37 @@ describe('Column rename', () => {
     // The draft is gone: reopening shows the original title, not the rejected one.
     await user.click(screen.getByRole('heading', { name: 'To do' }));
     expect(await screen.findByRole('textbox', { name: 'Column name' })).toHaveValue('To do');
+  });
+
+  // A collaborator's rename arrives as a new `column` prop while the editor is closed.
+  it('opens the editor on the current title after a realtime rename (heading click)', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderColumn();
+    rerender(
+      <DragDropContext onDragEnd={() => {}}>
+        <Column column={{ ...COLUMN, title: 'Backlog' }} onTaskClick={() => {}} />
+      </DragDropContext>,
+    );
+
+    await user.click(screen.getByRole('heading', { name: 'Backlog' }));
+    expect(await screen.findByRole('textbox', { name: 'Column name' })).toHaveValue('Backlog');
+  });
+
+  it('opens the editor on the current title after a realtime rename (menu)', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderColumn();
+    rerender(
+      <DragDropContext onDragEnd={() => {}}>
+        <Column column={{ ...COLUMN, title: 'Backlog' }} onTaskClick={() => {}} />
+      </DragDropContext>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Backlog column actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    const input = await screen.findByRole('textbox', { name: 'Column name' });
+    await settle();
+    expect(input).toHaveValue('Backlog');
+    expect(input).toHaveAttribute('maxlength', '100');
   });
 
   it('recovers when the save rejects: toasts, closes the editor, and can save again', async () => {
@@ -363,6 +480,23 @@ describe('Column delete confirm returns focus', () => {
     );
     expect(screen.queryByRole('heading', { name: 'To do' })).not.toBeInTheDocument();
     expect(deleteColumn).toHaveBeenCalledWith('col-1');
+  });
+
+  it("toasts and returns to the column's menu button when the delete rejects", async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    deleteColumn.mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup();
+    await renderBoard();
+
+    await openDeleteConfirm(user, 'To do');
+    await user.click(screen.getByRole('button', { name: 'Delete column' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'To do column actions' })).toHaveFocus(),
+    );
+    expect(toastError).toHaveBeenCalledWith('Failed to delete column');
+    expect(consoleError).toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'To do' })).toBeInTheDocument();
   });
 
   it("moves to the previous column's menu button after deleting the last column", async () => {
