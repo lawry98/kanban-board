@@ -136,8 +136,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
         <div className="space-y-4">
           {/* Title */}
           <div className="space-y-1">
-            <Label>Title</Label>
+            <Label htmlFor="task-title">Title</Label>
             <Input
+              id="task-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={!canEdit}
@@ -147,8 +148,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
           {/* Description */}
           <div className="space-y-1">
-            <Label>Description</Label>
+            <Label htmlFor="task-description">Description</Label>
             <Textarea
+              id="task-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               disabled={!canEdit}
@@ -160,9 +162,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           <div className="grid grid-cols-2 gap-4">
             {/* Priority */}
             <div className="space-y-1">
-              <Label>Priority</Label>
+              <Label htmlFor="task-priority">Priority</Label>
               <Select value={priority} onValueChange={setPriority} disabled={!canEdit}>
-                <SelectTrigger>
+                <SelectTrigger id="task-priority">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -177,9 +179,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
             {/* Column */}
             <div className="space-y-1">
-              <Label>Column</Label>
+              <Label htmlFor="task-column">Column</Label>
               <Select value={columnId} onValueChange={setColumnId} disabled={!canEdit}>
-                <SelectTrigger>
+                <SelectTrigger id="task-column">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -194,9 +196,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
             {/* Assignee */}
             <div className="space-y-1">
-              <Label>Assignee</Label>
+              <Label htmlFor="task-assignee">Assignee</Label>
               <Select value={assigneeId} onValueChange={setAssigneeId} disabled={!canEdit}>
-                <SelectTrigger>
+                <SelectTrigger id="task-assignee">
                   <SelectValue placeholder="Unassigned" />
                 </SelectTrigger>
                 <SelectContent>
@@ -225,8 +227,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
             {/* Due date */}
             <div className="space-y-1">
-              <Label>Due date</Label>
+              <Label htmlFor="task-due-date">Due date</Label>
               <Input
+                id="task-due-date"
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
@@ -237,13 +240,18 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
           {/* Labels */}
           <div className="space-y-2">
-            <Label>Labels</Label>
+            <Label htmlFor={canEdit ? 'task-label-input' : undefined}>Labels</Label>
             <div className="flex min-h-[28px] flex-wrap gap-1">
               {labels.map((label) => (
                 <Badge key={label} variant="secondary" className="gap-1 pr-1">
                   {label}
                   {canEdit && (
-                    <button onClick={() => removeLabel(label)} className="hover:bg-muted rounded">
+                    <button
+                      type="button"
+                      onClick={() => removeLabel(label)}
+                      aria-label={`Remove label ${label}`}
+                      className="hover:bg-muted focus-visible:ring-ring rounded outline-none focus-visible:ring-2"
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   )}
@@ -253,6 +261,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
             {canEdit && (
               <div className="flex gap-2">
                 <Input
+                  id="task-label-input"
                   value={labelInput}
                   onChange={(e) => setLabelInput(e.target.value)}
                   onKeyDown={(e) => {

@@ -95,3 +95,35 @@ describe('dialog accessible descriptions', () => {
     expectNoMissingDescriptionWarning();
   });
 });
+
+describe('TaskDetailDialog field names', () => {
+  it('names every field for editors', () => {
+    mockBoardContext(true);
+    render(<TaskDetailDialog task={{ ...TASK, labels: ['launch'] }} onClose={() => {}} />);
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Write launch post');
+    expect(screen.getByRole('textbox', { name: 'Description' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Priority' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Column' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Due date')).toHaveAttribute('type', 'date');
+    expect(screen.getByRole('textbox', { name: 'Labels' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove label launch' })).toHaveAttribute(
+      'type',
+      'button',
+    );
+  });
+
+  it('names the read-only fields for viewers', () => {
+    mockBoardContext(false);
+    render(<TaskDetailDialog task={{ ...TASK, labels: ['launch'] }} onClose={() => {}} />);
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Description' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Priority' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Column' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeDisabled();
+    expect(screen.getByLabelText('Due date')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Remove label/ })).not.toBeInTheDocument();
+  });
+});

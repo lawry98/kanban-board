@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { CreateBoardDialog } from '@/components/board/create-board-dialog';
+import { cn } from '@/lib/utils';
 import type { BoardWithMembers } from '@/types';
 
 interface BoardsClientProps {
@@ -55,11 +56,22 @@ export function BoardsClient({ boards }: BoardsClientProps) {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {boards.map((board, index) => (
             <BlurFade key={board.id} delay={0.05 * index}>
-              <Link href={`/board/${board.id}`} className="group block">
+              <Link
+                href={`/board/${board.id}`}
+                aria-labelledby={`board-${board.id}-title`}
+                aria-describedby={cn(
+                  board.description && `board-${board.id}-description`,
+                  `board-${board.id}-summary`,
+                )}
+                className="group focus-visible:ring-ring block rounded-xl outline-none focus-visible:ring-2"
+              >
                 <Card className="h-full cursor-pointer transition-shadow hover:shadow-md">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="line-clamp-2 text-base leading-tight font-medium">
+                      <CardTitle
+                        id={`board-${board.id}-title`}
+                        className="line-clamp-2 text-base leading-tight font-medium"
+                      >
                         {board.title}
                       </CardTitle>
                       <Badge variant="outline" className="shrink-0 text-xs capitalize">
@@ -67,12 +79,19 @@ export function BoardsClient({ boards }: BoardsClientProps) {
                       </Badge>
                     </div>
                     {board.description && (
-                      <p className="text-muted-foreground mt-1 line-clamp-2 text-xs">
+                      <p
+                        id={`board-${board.id}-description`}
+                        className="text-muted-foreground mt-1 line-clamp-2 text-xs"
+                      >
                         {board.description}
                       </p>
                     )}
                   </CardHeader>
                   <CardContent className="pt-0">
+                    {/* The visible NumberTicker animates up from 0, so it can't be the description. */}
+                    <span id={`board-${board.id}-summary`} className="sr-only">
+                      {`${board.role.toLowerCase()}, ${board._count.tasks} task${board._count.tasks === 1 ? '' : 's'}, updated ${board.updatedAtRelative}`}
+                    </span>
                     <div className="flex items-center justify-between">
                       <div className="text-muted-foreground flex items-center gap-3 text-xs">
                         <span>

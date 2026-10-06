@@ -49,7 +49,7 @@ components/
 ├── board/                        # Board feature: column, task-card, task-due-date, task-detail-dialog,
 │                                 #   board-header, activity-feed, add-column-button, create-board-dialog
 ├── landing/                      # Marketing sections
-└── layout/                       # navbar, user-menu
+└── layout/                       # navbar, user-menu, theme-toggle
 contexts/board-context.tsx        # Board state: reducer + provider (exports `boardReducer`)
 hooks/
 ├── use-realtime.ts               # Supabase Realtime subscription + resync

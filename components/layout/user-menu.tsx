@@ -60,7 +60,11 @@ export function UserMenu({ name, email, avatarUrl }: UserMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="relative h-8 w-8 rounded-full p-0">
+        <Button
+          variant="ghost"
+          aria-label="Account menu"
+          className="relative h-8 w-8 rounded-full p-0"
+        >
           <Avatar className="h-8 w-8">
             {avatarUrl && <AvatarImage src={avatarUrl} alt={name} />}
             <AvatarFallback className="text-xs">{initials}</AvatarFallback>
