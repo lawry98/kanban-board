@@ -48,7 +48,6 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   // must not save a second time (Enter) or save at all (Escape).
   const closingTitleEditRef = useRef(false);
   const actionsId = columnActionsId(column.id);
-  const headingId = `column-${column.id}-title`;
   // Where focus goes when the delete confirm closes: this column's menu button, or once the
   // column is deleted a neighbour's (null: no columns left, so leave focus be).
   const confirmReturnFocusIdRef = useRef<string | null>(actionsId);
@@ -182,7 +181,6 @@ export function Column({ column, onTaskClick }: ColumnProps) {
             />
           ) : (
             <h2
-              id={headingId}
               className={`truncate text-sm font-medium ${canEdit ? 'hover:text-foreground/70 cursor-pointer' : ''}`}
               onClick={() => canEdit && openRename()}
             >
@@ -254,7 +252,8 @@ export function Column({ column, onTaskClick }: ColumnProps) {
             ref={provided.innerRef}
             {...provided.droppableProps}
             role="group"
-            aria-labelledby={headingId}
+            // Not aria-labelledby the heading: the rename input replaces it while editing.
+            aria-label={column.title}
             className={cn(
               'bg-muted/30 flex min-h-[60px] flex-1 flex-col gap-2 rounded-lg border p-2 transition-colors',
               snapshot.isDraggingOver && 'bg-muted/60',

@@ -364,12 +364,22 @@ describe('Column semantics', () => {
       .parentElement!.querySelector('[data-slot="badge"]');
   }
 
-  it('labels its task list with the column heading, an h2', () => {
+  it('heads the column with an h2 and names its task list after it', () => {
     renderColumn({ ...COLUMN, tasks: [makeTask('t1', 'Write launch post')] });
     expect(screen.getByRole('heading', { level: 2, name: 'To do' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'To do' })).toContainElement(
       screen.getByRole('button', { name: 'Write launch post' }),
     );
+  });
+
+  it('keeps the task list named while the heading is swapped for the rename input', async () => {
+    const user = userEvent.setup();
+    renderColumn({ ...COLUMN, tasks: [makeTask('t1', 'Write launch post')] });
+
+    await user.click(screen.getByRole('heading', { name: 'To do' }));
+    expect(await screen.findByRole('textbox', { name: 'Column name' })).toBeInTheDocument();
+
+    expect(screen.getByRole('group', { name: 'To do' })).toBeInTheDocument();
   });
 
   it('says what the count badge counts', () => {
