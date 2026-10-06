@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import type * as Dnd from '@hello-pangea/dnd';
 
 type DndProps = ComponentProps<typeof Dnd.DragDropContext>;
@@ -39,6 +39,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import { BoardView } from '@/app/(dashboard)/board/[boardId]/board-view';
 import { moveTask } from '@/app/actions/task-actions';
+import { taskCardId } from '@/lib/dom-ids';
 import { DRAG_HANDLE_INSTRUCTIONS } from '@/lib/drag-announcements';
 import type { BoardWithDetails, ColumnWithTasks, TaskWithAssignee } from '@/types';
 
@@ -292,6 +293,37 @@ describe('BoardView drag announcements', () => {
     await act(() => props().onDragEnd(drop({}), outside));
     expect(said(outside)).toMatch(/was dropped outside a column/);
     expect(moveTask).not.toHaveBeenCalled();
+  });
+
+  describe('when the server rejects the move', () => {
+    beforeEach(() => {
+      vi.mocked(moveTask).mockResolvedValue({ error: 'Failed to move task' });
+    });
+
+    it('returns focus to the card if the revert left it on <body>', async () => {
+      renderBoard(columns);
+      expect(document.activeElement).toBe(document.body);
+
+      await act(() =>
+        props().onDragEnd(drop({ destination: { droppableId: DOING, index: 0 } }), announcer()),
+      );
+
+      // The card moved back into its old list: a fresh element under the same id.
+      await waitFor(() => expect(document.getElementById(taskCardId(TASK))).toHaveFocus());
+    });
+
+    it('leaves focus alone when the user has moved on', async () => {
+      renderBoard(columns);
+      const addColumn = screen.getByRole('button', { name: 'Add column' });
+      addColumn.focus();
+
+      await act(() =>
+        props().onDragEnd(drop({ destination: { droppableId: DOING, index: 0 } }), announcer()),
+      );
+      await act(() => new Promise(requestAnimationFrame));
+
+      expect(addColumn).toHaveFocus();
+    });
   });
 
   it('announces even where the viewer guard stops the move', async () => {

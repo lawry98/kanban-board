@@ -12,6 +12,7 @@ import { Column } from '@/components/board/column';
 import { TaskDetailDialog } from '@/components/board/task-detail-dialog';
 import { BoardProvider, useBoardContext } from '@/contexts/board-context';
 import { useRealtime } from '@/hooks/use-realtime';
+import { focusById, taskCardId } from '@/lib/dom-ids';
 import {
   DRAG_HANDLE_INSTRUCTIONS,
   announceDragEnd,
@@ -87,6 +88,11 @@ function BoardContent() {
           fromIndex: destination.index,
           toIndex: source.index,
         },
+      });
+      // Moving back remounts the card in its old list, which drops a keyboard user's focus
+      // to <body>. Only then: never take focus from wherever the user has since moved it.
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body) focusById(taskCardId(draggableId));
       });
     }
   }
