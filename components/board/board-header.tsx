@@ -107,6 +107,9 @@ export function BoardHeader({ realtimeStatus, onOpenActivity }: BoardHeaderProps
             onBlur={handleTitleBlur}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
+                // The Enter that confirms an IME composition (Chinese, Japanese) belongs
+                // to the IME, not to the form: leave it alone and keep the editor open.
+                if (e.nativeEvent.isComposing) return;
                 // Focus lands on the title button before this keystroke's keypress
                 // fires; without preventDefault that Enter would click it and
                 // reopen the editor.

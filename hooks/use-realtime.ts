@@ -108,10 +108,10 @@ const getServerOnline = (): boolean => true;
  *    channel's own callbacks drive it, and no later SUBSCRIBED would ever clear
  *    a `reconnecting` set here. It is only ever set from a callback or after an
  *    await, after the same `disposed` / `next !== channel` guards as everything
- *    else, so a late report from a replaced channel cannot change it. The browser's own `navigator.onLine`
- *    overrides it: a dropped network can leave the socket open until the
- *    heartbeat times out, tens of seconds, and `live` would be a lie meanwhile.
- *    Back online, the channel's own status shows again.
+ *    else, so a late report from a replaced channel cannot change it. The browser's
+ *    own `navigator.onLine` overrides it: a dropped network can leave the socket
+ *    open until the heartbeat times out, tens of seconds, and `live` would be a
+ *    lie meanwhile. Back online, the channel's own status shows again.
  *
  * Known better design (deliberately out of scope for this pass): switch to
  * `broadcast` messages carrying the mutated row plus an origin id, so a client

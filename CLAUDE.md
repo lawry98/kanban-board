@@ -131,7 +131,7 @@ CI (`.github/workflows/ci.yml`) runs `prisma generate` → typecheck → `lint -
 ### State Management
 
 - React Context + `useReducer` for board state. `boardReducer` is exported from `contexts/board-context.tsx` and unit-tested.
-- Actions are a discriminated union (`BoardAction` in `types/index.ts`). `BoardState` is `{ meta, columns, members }` — `meta` is the board's title and description, which the header reads (the `board` prop is only the mount-time snapshot: use it for `id`). The reducer is pure; `SYNC_STATE` reconciles `meta`, columns and members by value/id and preserves unchanged object references so memoized cards can bail out of re-render.
+- Actions are a discriminated union (`BoardAction` in `types/index.ts`). `BoardState` is `{ meta, columns, members }` — `meta` is the board's title and description; the header reads `meta.title` (the description is carried but not rendered). The `board` prop is only the server snapshot the reducer was seeded from, which Realtime does not keep current: use it for `id`. The reducer is pure; `SYNC_STATE` reconciles `meta`, columns and members by value/id and preserves unchanged object references so memoized cards can bail out of re-render.
 - Optimistic updates: dispatch immediately, call the action, revert via `SYNC_STATE` on error. **Snapshot state at call time**, not render time.
 
 ### Naming
@@ -246,7 +246,7 @@ Three paths reach the database, and each has exactly one barrier:
 | Supabase **Data API** — REST `/rest/v1`, GraphQL, `/rpc` | `anon` (the public anon key) or `authenticated` (a user's JWT) | **table grants + RLS**; Zod and the guards never run         |
 | Realtime `postgres_changes`                              | `authenticated`                                                | `GRANT SELECT` + the SELECT policies (not on DELETE — below) |
 
-The anon key ships in the browser bundle, so anyone can call the Data API, even though the app itself never does. `20261002053019_lock_down_data_api` sets the posture; keep it:
+The anon key ships in the browser bundle, so anyone can call the Data API, even though the app itself never does. `20261002053019_lock_down_data_api` and the migrations after it set the posture; keep it:
 
 - `anon` holds no privilege on any `public` table or sequence.
 - `authenticated` holds `SELECT` on `tasks`, `columns`, `board_members` and `boards` (the Realtime tables) and nothing else.
@@ -355,6 +355,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
 - **Test coverage is minimal** — `boardReducer`, `useRealtime`, the board header and connection indicator, the activity feed, the analytics event/dedupe helpers, `proxy`'s route-protection, the DB TLS policy, and due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`) are covered; most Server Actions and components are not.
+- **Browser tab title doesn't follow a live rename** — it comes from `generateMetadata` in `app/(dashboard)/board/[boardId]/page.tsx`, which is server-rendered.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.

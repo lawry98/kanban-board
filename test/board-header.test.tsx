@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { RealtimeStatus } from '@/hooks/use-realtime';
@@ -175,6 +175,26 @@ describe('BoardHeader', () => {
 
     expect(updateBoard).not.toHaveBeenCalled();
     expect(heading()).toHaveTextContent('QA board');
+  });
+
+  it('ignores the Enter that confirms an IME composition', async () => {
+    const { user } = renderHeader();
+
+    await user.click(screen.getByRole('button', { name: 'QA board' }));
+    const input = screen.getByRole('textbox');
+    await user.clear(input);
+    await user.type(input, 'Roadmap');
+    // A real keydown whose `isComposing` is true: the Enter that picks an IME candidate.
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    // The editor stays open and nothing is saved; the composition owns that keystroke.
+    expect(screen.getByRole('textbox')).toBe(input);
+    expect(input).toHaveFocus();
+    expect(updateBoard).not.toHaveBeenCalled();
+
+    // The Enter after the composition ends still commits.
+    await user.keyboard('{Enter}');
+    expect(updateBoard).toHaveBeenCalledWith('board-1', { title: 'Roadmap' });
   });
 
   it("does not overwrite a collaborator's rename when the editor is blurred untouched", async () => {

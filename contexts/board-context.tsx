@@ -16,8 +16,10 @@ interface BoardContextValue {
   state: BoardState;
   dispatch: Dispatch<BoardAction>;
   /**
-   * The server snapshot at mount. It never updates, so use it only for `id`;
-   * read the live title and description from `state.meta`.
+   * The server snapshot the reducer was seeded from. Realtime does not keep it
+   * current (a `revalidatePath` may refresh it, but the reducer is never
+   * re-seeded), so use it only for `id`; read the live title and description
+   * from `state.meta`.
    */
   board: BoardWithDetails;
   currentUserId: string;
