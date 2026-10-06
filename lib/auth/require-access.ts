@@ -1,3 +1,6 @@
+import { after } from 'next/server';
+
+import * as Sentry from '@sentry/nextjs';
 import { ZodError } from 'zod';
 
 import { prisma } from '@/lib/prisma';
@@ -33,6 +36,9 @@ export class PublicError extends Error {
  * Single funnel for every action catch block. Logs the real error server-side and
  * returns a message that never contains model names, column names, constraint names,
  * or the database host (all of which Prisma happily embeds in `error.message`).
+ *
+ * Unexpected errors are also reported to Sentry, tagged with `context`. Expected
+ * outcomes (`PublicError`, `ZodError`) are 4xx-style results and are not reported.
  */
 export function toActionError(
   context: string,
@@ -45,7 +51,21 @@ export function toActionError(
   if (error instanceof ZodError) {
     return { error: error.issues[0]?.message ?? 'Invalid input' };
   }
+  reportUnexpected(context, error);
   return { error: fallback };
+}
+
+function reportUnexpected(context: string, error: unknown): void {
+  Sentry.captureException(error, { tags: { action: context } });
+  // On serverless the function may freeze once the response is sent, before the SDK's
+  // background send completes; `after` keeps it alive until the flush settles. Skipped when
+  // Sentry is inert (no client) and outside a request scope (scripts, tests), where `after` throws.
+  if (!Sentry.getClient()) return;
+  try {
+    after(() => Sentry.flush(2000));
+  } catch {
+    // Not in a request scope — nothing to keep alive.
+  }
 }
 
 // ─── Role sets ────────────────────────────────────────────────────────────────

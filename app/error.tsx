@@ -2,18 +2,22 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
+import * as Sentry from '@sentry/nextjs';
 import { AlertCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
+// Next 16.3 docs: prefer `retry` (re-fetches, then re-renders) over `reset` (re-renders only).
 interface ErrorPageProps {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }
 
-export default function ErrorPage({ error, reset }: ErrorPageProps) {
+export default function ErrorPage({ error, retry }: ErrorPageProps) {
   useEffect(() => {
     console.error(error);
+    // Errors caught by an error boundary never reach Sentry's global handler.
+    Sentry.captureException(error);
   }, [error]);
 
   return (
@@ -25,7 +29,7 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
           An unexpected error occurred. Please try again.
         </p>
         <div className="flex gap-2">
-          <Button onClick={reset}>Try again</Button>
+          <Button onClick={retry}>Try again</Button>
           <Button variant="outline" asChild>
             <Link href="/boards">Go home</Link>
           </Button>
