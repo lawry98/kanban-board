@@ -1,7 +1,8 @@
 import type { ComponentProps } from 'react';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import type * as Dnd from '@hello-pangea/dnd';
+import { toast } from 'sonner';
 
 type DndProps = ComponentProps<typeof Dnd.DragDropContext>;
 
@@ -120,6 +121,10 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   dnd.props = null;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('BoardView scroll structure', () => {
@@ -309,6 +314,22 @@ describe('BoardView drag announcements', () => {
       );
 
       // The card moved back into its old list: a fresh element under the same id.
+      await waitFor(() => expect(document.getElementById(taskCardId(TASK))).toHaveFocus());
+    });
+
+    it('handles a rejected request like an error result: toast, revert, refocus', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(moveTask).mockRejectedValue(new Error('offline'));
+      const { container } = renderBoard(columns);
+
+      await act(() =>
+        props().onDragEnd(drop({ destination: { droppableId: DOING, index: 0 } }), announcer()),
+      );
+
+      expect(consoleError).toHaveBeenCalled();
+      expect(toast.error).toHaveBeenCalledWith('Failed to move task');
+      const card = document.getElementById(taskCardId(TASK));
+      expect(container.querySelector(`[data-rfd-droppable-id="${TODO}"]`)).toContainElement(card);
       await waitFor(() => expect(document.getElementById(taskCardId(TASK))).toHaveFocus());
     });
 

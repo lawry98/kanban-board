@@ -65,16 +65,24 @@ function BoardContent() {
     });
 
     // Server sync
-    const result2 = await moveTask({
-      taskId: draggableId,
-      targetColumnId: destination.droppableId,
-      targetIndex: destination.index,
-    });
-    if (result2.error) {
+    let error: string | undefined;
+    try {
+      const moved = await moveTask({
+        taskId: draggableId,
+        targetColumnId: destination.droppableId,
+        targetIndex: destination.index,
+      });
+      error = moved.error;
+    } catch (err) {
+      // The action itself rejected (offline, aborted fetch): revert exactly as for an { error }.
+      console.error('moveTask failed:', err);
+      error = 'Failed to move task';
+    }
+    if (error) {
       // 'Forbidden' means the caller lost edit rights (e.g. demoted to viewer
       // between render and drop) — say so rather than a generic failure.
       toast.error(
-        result2.error === 'Forbidden'
+        error === 'Forbidden'
           ? "You're a viewer — you can't move tasks on this board"
           : 'Failed to move task',
       );

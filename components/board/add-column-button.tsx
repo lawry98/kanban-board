@@ -35,22 +35,26 @@ export function AddColumnButton() {
   async function handleSubmit() {
     if (!title.trim() || isLoading) return;
     setIsLoading(true);
+    try {
+      const result = await createColumn({ boardId: board.id, title: title.trim() });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
 
-    const result = await createColumn({ boardId: board.id, title: title.trim() });
-    setIsLoading(false);
-
-    if (result.error) {
-      toast.error(result.error);
-      return;
+      // The provider seeds its reducer from `board` only once, so `revalidatePath`
+      // never reaches local state — dispatch, or the column waits for a resync.
+      if (result.data) {
+        dispatch({ type: 'ADD_COLUMN', payload: result.data });
+      }
+      closeForm();
+      toast.success('Column created');
+    } catch (err) {
+      console.error('createColumn failed:', err);
+      toast.error('Failed to create column');
+    } finally {
+      setIsLoading(false);
     }
-
-    // The provider seeds its reducer from `board` only once, so `revalidatePath`
-    // never reaches local state — dispatch, or the column waits for a resync.
-    if (result.data) {
-      dispatch({ type: 'ADD_COLUMN', payload: result.data });
-    }
-    closeForm();
-    toast.success('Column created');
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {

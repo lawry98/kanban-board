@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -92,6 +92,10 @@ describe('AddColumnButton', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('shows the created column without waiting for a realtime resync', async () => {
     createColumn.mockResolvedValue({ data: makeColumn('review', 'Review', 2000) });
 
@@ -177,5 +181,19 @@ describe('AddColumnButton', () => {
     expect(columnTitles()).toEqual(['To do']);
     expect(screen.getByPlaceholderText('Column name')).toHaveValue('Review');
     expect(screen.getByPlaceholderText('Column name')).toHaveFocus();
+  });
+
+  it('toasts and lets the user retry when the create rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    createColumn.mockRejectedValueOnce(new Error('offline'));
+
+    await addColumn('Review');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Failed to create column'));
+    expect(consoleError).toHaveBeenCalled();
+    const input = screen.getByPlaceholderText('Column name');
+    expect(input).not.toHaveAttribute('readonly');
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('Review');
   });
 });
