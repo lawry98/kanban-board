@@ -215,63 +215,64 @@ export function Column({ column, onTaskClick }: ColumnProps) {
             ))}
 
             {provided.placeholder}
+
+            {/* Add task. Inside the list so it sits right under the last card, while the list
+                still stretches to the board's full height. */}
+            {canEdit && (
+              <div>
+                {isAddingTask ? (
+                  <div className="bg-card space-y-2 rounded-lg border p-2">
+                    <Input
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateTask();
+                        if (e.key === 'Escape') {
+                          setIsAddingTask(false);
+                          setNewTaskTitle('');
+                        }
+                      }}
+                      placeholder="Task title…"
+                      aria-label="Task title"
+                      autoFocus
+                      disabled={isCreatingTask}
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleCreateTask}
+                        disabled={isCreatingTask || !newTaskTitle.trim()}
+                      >
+                        {isCreatingTask ? 'Adding…' : 'Add task'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setIsAddingTask(false);
+                          setNewTaskTitle('');
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground w-full justify-start"
+                    onClick={() => setIsAddingTask(true)}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add task
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Droppable>
-
-      {/* Add task */}
-      {canEdit && (
-        <div>
-          {isAddingTask ? (
-            <div className="bg-card space-y-2 rounded-lg border p-2">
-              <Input
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateTask();
-                  if (e.key === 'Escape') {
-                    setIsAddingTask(false);
-                    setNewTaskTitle('');
-                  }
-                }}
-                placeholder="Task title…"
-                aria-label="Task title"
-                autoFocus
-                disabled={isCreatingTask}
-              />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={handleCreateTask}
-                  disabled={isCreatingTask || !newTaskTitle.trim()}
-                >
-                  {isCreatingTask ? 'Adding…' : 'Add task'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setIsAddingTask(false);
-                    setNewTaskTitle('');
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-foreground w-full justify-start"
-              onClick={() => setIsAddingTask(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add task
-            </Button>
-          )}
-        </div>
-      )}
 
       <ConfirmDialog
         open={confirmDeleteOpen}

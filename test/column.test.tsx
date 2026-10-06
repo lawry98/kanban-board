@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DragDropContext } from '@hello-pangea/dnd';
 
-import type { ColumnWithTasks } from '@/types';
+import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
 
 const { updateColumn, deleteColumn, createTask, toastError, toastSuccess } = vi.hoisted(() => ({
   updateColumn: vi.fn(),
@@ -33,6 +33,26 @@ const COLUMN: ColumnWithTasks = {
   updatedAt: EPOCH,
   tasks: [],
 };
+
+function makeTask(id: string, title: string): TaskWithAssignee {
+  return {
+    id,
+    columnId: COLUMN.id,
+    boardId: COLUMN.boardId,
+    title,
+    description: null,
+    position: 1000,
+    priority: 'NONE',
+    labels: [],
+    dueDate: null,
+    assigneeId: null,
+    createdBy: 'user-1',
+    createdAt: EPOCH,
+    updatedAt: EPOCH,
+    assignee: null,
+    creator: null,
+  };
+}
 
 function mockContext(canEdit = true) {
   vi.mocked(useBoardContext).mockReturnValue({
@@ -223,10 +243,41 @@ describe('Column scroll structure', () => {
     const { container } = renderColumn();
     expect(container.querySelector('[data-radix-scroll-area-viewport]')).toBeNull();
 
-    const list = container.querySelector(`[data-rfd-droppable-id="${COLUMN.id}"]`);
+    const list = container.querySelector<HTMLElement>(`[data-rfd-droppable-id="${COLUMN.id}"]`);
     expect(list).not.toBeNull();
     for (let el = list; el && el !== container; el = el.parentElement) {
       expect(el.className).not.toMatch(/\boverflow-/);
+      // Radix ScrollArea sets overflow inline rather than by class.
+      expect(el.style.overflowX + el.style.overflowY).not.toMatch(/auto|scroll/);
     }
+  });
+
+  it('keeps the add-task control inside the stretched list, right after the last card', async () => {
+    const user = userEvent.setup();
+    const { container } = renderColumn({
+      ...COLUMN,
+      tasks: [makeTask('t1', 'Write launch post'), makeTask('t2', 'Fix login bug')],
+    });
+    const list = container.querySelector(`[data-rfd-droppable-id="${COLUMN.id}"]`)!;
+    const lastCard = screen.getByRole('button', { name: 'Fix login bug' });
+    const addTask = screen.getByRole('button', { name: 'Add task' });
+
+    expect(list).toContainElement(lastCard);
+    expect(list).toContainElement(addTask);
+    expect(
+      lastCard.compareDocumentPosition(addTask) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // The inline form replaces the button in the same spot.
+    await user.click(addTask);
+    const input = screen.getByRole('textbox', { name: 'Task title' });
+    expect(list).toContainElement(input);
+    expect(lastCard.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows no add-task control to viewers', () => {
+    mockContext(false);
+    renderColumn({ ...COLUMN, tasks: [makeTask('t1', 'Write launch post')] });
+    expect(screen.queryByRole('button', { name: 'Add task' })).not.toBeInTheDocument();
   });
 });
