@@ -1,39 +1,40 @@
+import { cache } from 'react';
 import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
-import { PUBLIC_PROFILE_SELECT } from '@/types/board';
+import { MEMBER_PROFILE_INCLUDE, PUBLIC_PROFILE_SELECT } from '@/types/board';
 import { BoardView } from './board-view';
+
+import type { Role } from '@prisma/client';
+import type { BoardWithDetails } from '@/types';
 
 interface BoardPageProps {
   params: Promise<{ boardId: string }>;
 }
 
-export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
-  const { boardId } = await params;
-  const board = await prisma.board.findUnique({
-    where: { id: boardId },
-    select: { title: true },
-  });
-  return { title: board?.title ?? 'Board' };
-}
+type BoardForViewer =
+  | { status: 'ok'; userId: string; role: Role; board: BoardWithDetails }
+  | { status: 'unauthenticated' }
+  | { status: 'not-found' };
 
-export default async function BoardPage({ params }: BoardPageProps) {
-  const { boardId } = await params;
-
+/**
+ * The board as the signed-in viewer may see it, or why they can't. `cache()` makes
+ * generateMetadata and the page share one authorization per request, so a
+ * non-member gets neither the board nor its title.
+ */
+const loadBoardForViewer = cache(async (boardId: string): Promise<BoardForViewer> => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  if (!user) redirect('/login');
+  if (!user) return { status: 'unauthenticated' };
 
   const membership = await prisma.boardMember.findFirst({
     where: { boardId, userId: user.id },
   });
-
-  if (!membership) notFound();
+  if (!membership) return { status: 'not-found' };
 
   const board = await prisma.board.findUnique({
     where: { id: boardId },
@@ -51,13 +52,34 @@ export default async function BoardPage({ params }: BoardPageProps) {
         },
       },
       members: {
-        include: { profile: true },
+        include: MEMBER_PROFILE_INCLUDE,
       },
       creator: { select: PUBLIC_PROFILE_SELECT },
     },
   });
+  if (!board) return { status: 'not-found' };
 
-  if (!board) notFound();
+  return { status: 'ok', userId: user.id, role: membership.role, board };
+});
 
-  return <BoardView board={board} currentUserId={user.id} userRole={membership.role} />;
+export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
+  const { boardId } = await params;
+  try {
+    const result = await loadBoardForViewer(boardId);
+    return { title: result.status === 'ok' ? result.board.title : 'Board' };
+  } catch (error) {
+    // The page renders the real failure; the tab title just stays generic.
+    console.error('board generateMetadata error:', error);
+    return { title: 'Board' };
+  }
+}
+
+export default async function BoardPage({ params }: BoardPageProps) {
+  const { boardId } = await params;
+  const result = await loadBoardForViewer(boardId);
+
+  if (result.status === 'unauthenticated') redirect('/login');
+  if (result.status === 'not-found') notFound();
+
+  return <BoardView board={result.board} currentUserId={result.userId} userRole={result.role} />;
 }
