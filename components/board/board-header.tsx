@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, MoreHorizontal, Share2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -15,40 +15,80 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/board/confirm-dialog';
+import { ConnectionIndicator } from '@/components/board/connection-indicator';
 import { MembersDialog } from '@/components/board/members-dialog';
 import { ShareBoardDialog } from '@/components/board/share-board-dialog';
 import { deleteBoard, updateBoard } from '@/app/actions/board-actions';
 import { useBoardContext } from '@/contexts/board-context';
 
+import type { RealtimeStatus } from '@/hooks/use-realtime';
+
 interface BoardHeaderProps {
+  realtimeStatus: RealtimeStatus;
   onOpenActivity: () => void;
 }
 
-export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
-  const { state, board, isOwner, canEdit } = useBoardContext();
+export function BoardHeader({ realtimeStatus, onOpenActivity }: BoardHeaderProps) {
+  const { state, dispatch, board, isOwner, canEdit } = useBoardContext();
+  // The live title lives in reducer state; `board` is the mount-time snapshot, so
+  // only its `id` is read from it.
+  const title = state.meta.title;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleValue, setTitleValue] = useState(board.title);
+  const [titleValue, setTitleValue] = useState(title);
+  // Escape sets this before blurring so the shared blur handler skips the save.
+  const cancelEditRef = useRef(false);
+  // The title the editor was seeded with. A save only happens if the input moved
+  // off it; comparing against the live title alone would write the stale seed
+  // back over a rename a collaborator made while the editor was open.
+  const editSeedRef = useRef(title);
+  // Enter/Escape set this so focus returns to the title button once the editor
+  // closes. A click-away blur leaves it unset: focus belongs to what was clicked.
+  const restoreFocusRef = useRef(false);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
 
-  async function handleTitleSave() {
-    if (!titleValue.trim() || titleValue === board.title) {
-      setIsEditingTitle(false);
-      setTitleValue(board.title);
+  // Runs after the editor has unmounted and the title button is back in the DOM.
+  useEffect(() => {
+    if (isEditingTitle || !restoreFocusRef.current) return;
+    restoreFocusRef.current = false;
+    titleButtonRef.current?.focus();
+  }, [isEditingTitle]);
+
+  function startEditing() {
+    editSeedRef.current = title;
+    setTitleValue(title);
+    setIsEditingTitle(true);
+  }
+
+  async function saveTitle(raw: string) {
+    const next = raw.trim();
+    if (!next || next === editSeedRef.current || next === title) return;
+
+    // Snapshot at call time; revert only this field so a concurrent resync of
+    // columns/members is not rolled back with it.
+    const previous = title;
+    dispatch({ type: 'UPDATE_BOARD', payload: { title: next } });
+    const result = await updateBoard(board.id, { title: next });
+    if ('error' in result) {
+      dispatch({ type: 'UPDATE_BOARD', payload: { title: previous } });
+      toast.error(result.error);
       return;
     }
+    dispatch({ type: 'UPDATE_BOARD', payload: { title: result.data.title } });
+    toast.success('Board updated');
+  }
 
-    const result = await updateBoard(board.id, { title: titleValue.trim() });
-    if (result.error) {
-      toast.error(result.error);
-      setTitleValue(board.title);
-    } else {
-      toast.success('Board updated');
-    }
+  // Blur is the single save path: Enter blurs the input, so Enter + blur cannot
+  // submit twice, and Escape cancels via the ref instead of saving on blur.
+  function handleTitleBlur() {
+    const cancelled = cancelEditRef.current;
+    cancelEditRef.current = false;
     setIsEditingTitle(false);
+    if (!cancelled) void saveTitle(titleValue);
   }
 
   async function handleDeleteBoard() {
@@ -58,37 +98,65 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
   }
 
   return (
-    <div className="flex items-center justify-between border-b px-4 py-3 sm:px-6">
-      <div className="flex flex-col gap-0.5">
+    <header className="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6">
+      <div className="flex min-w-0 flex-col gap-0.5">
         {isEditingTitle && canEdit ? (
           <Input
             value={titleValue}
             onChange={(e) => setTitleValue(e.target.value)}
-            onBlur={handleTitleSave}
+            onBlur={handleTitleBlur}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleTitleSave();
+              if (e.key === 'Enter') {
+                // The Enter that confirms an IME composition (Chinese, Japanese) belongs
+                // to the IME, not to the form: leave it alone and keep the editor open.
+                if (e.nativeEvent.isComposing) return;
+                // Focus lands on the title button before this keystroke's keypress
+                // fires; without preventDefault that Enter would click it and
+                // reopen the editor.
+                e.preventDefault();
+                restoreFocusRef.current = true;
+                e.currentTarget.blur();
+              }
               if (e.key === 'Escape') {
-                setIsEditingTitle(false);
-                setTitleValue(board.title);
+                cancelEditRef.current = true;
+                restoreFocusRef.current = true;
+                e.currentTarget.blur();
               }
             }}
-            className="h-8 w-64 px-1 text-xl font-semibold"
+            aria-label="Board title"
+            className="h-8 w-full px-1 text-xl font-semibold sm:w-64"
             autoFocus
           />
         ) : (
-          <h1
-            className={`text-xl font-semibold tracking-tight ${canEdit ? 'cursor-pointer hover:opacity-70' : ''}`}
-            onClick={() => canEdit && setIsEditingTitle(true)}
-          >
-            {board.title}
+          <h1 className="min-w-0 text-xl font-semibold tracking-tight">
+            {canEdit ? (
+              <button
+                ref={titleButtonRef}
+                type="button"
+                onClick={startEditing}
+                title={title}
+                className="focus-visible:ring-ring block max-w-full cursor-pointer truncate rounded-sm text-left hover:opacity-70 focus-visible:ring-2 focus-visible:outline-none"
+              >
+                {title}
+              </button>
+            ) : (
+              <span className="block truncate" title={title}>
+                {title}
+              </span>
+            )}
           </h1>
         )}
-        <p className="text-muted-foreground text-xs">
-          {state.columns.length} columns · {taskCount} tasks
-        </p>
+        {/* The status shares the stats line, so it never takes width from the truncating title. */}
+        <div className="text-muted-foreground flex items-center gap-2 text-xs">
+          <span>
+            {state.columns.length} columns · {taskCount} tasks
+          </span>
+          <span aria-hidden="true">·</span>
+          <ConnectionIndicator status={realtimeStatus} />
+        </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         {/* Member avatars — click to open member management (all roles). */}
         <TooltipProvider>
           <button
@@ -129,24 +197,36 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
 
         {/* Share (owner-only) */}
         {isOwner && (
-          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-            <Share2 className="mr-2 h-4 w-4" />
-            Share
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="sm:w-auto sm:px-2.5"
+            onClick={() => setShareOpen(true)}
+            aria-label="Share board"
+          >
+            <Share2 aria-hidden="true" />
+            <span className="hidden sm:inline">Share</span>
           </Button>
         )}
 
         {/* Activity feed */}
-        <Button variant="ghost" size="sm" onClick={onOpenActivity}>
-          <Activity className="mr-2 h-4 w-4" />
-          Activity
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="sm:w-auto sm:px-2.5"
+          onClick={onOpenActivity}
+          aria-label="Activity"
+        >
+          <Activity aria-hidden="true" />
+          <span className="hidden sm:inline">Activity</span>
         </Button>
 
         {/* Board actions (owner-only) */}
         {isOwner && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Board actions">
-                <MoreHorizontal className="h-4 w-4" />
+              <Button variant="ghost" size="icon-sm" aria-label="Board actions">
+                <MoreHorizontal aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -174,9 +254,8 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           title="Delete this board?"
           description={
             <>
-              <span className="text-foreground font-medium">{board.title}</span> and all its
-              columns, tasks, members, and activity will be permanently deleted. This cannot be
-              undone.
+              <span className="text-foreground font-medium">{title}</span> and all its columns,
+              tasks, members, and activity will be permanently deleted. This cannot be undone.
             </>
           }
           confirmLabel="Delete board"
@@ -184,6 +263,6 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
           onConfirm={handleDeleteBoard}
         />
       )}
-    </div>
+    </header>
   );
 }
