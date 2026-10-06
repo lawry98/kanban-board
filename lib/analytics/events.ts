@@ -4,7 +4,7 @@
  * The union below is closed on purpose: a malformed payload is a compile error,
  * not a silently rotten JSON column. This is the direct answer to the drift that
  * already happened in `activity_logs`, where `createBoard` wrote
- * `metadata.boardTitle` while `activity-feed.tsx` reads `meta.title`.
+ * `metadata.boardTitle` while `activity-feed.tsx` read `meta.title`.
  *
  * PRIVACY: property values are ids and enum members only. Never add an email, a
  * raw invite token, a board or task title, a pathname, an IP, or a user agent.
