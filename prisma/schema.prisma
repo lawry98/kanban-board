@@ -121,11 +121,14 @@ model Invitation {
   // Unguessable, server-generated (crypto.randomBytes). The unique index is the
   // lookup path for the join flow.
   token     String    @unique
-  // Optional targeting: unused by the reusable-link MVP, but present so email
-  // invitations can be added later without another migration.
+  // Optional targeting, enforced on accept: a bound invite can only be accepted by a
+  // signed-in user whose CONFIRMED primary email matches (lib/invitations.ts).
+  // Nothing in the UI sets it yet — createInvitation accepts it, the share dialog doesn't send it.
   email     String?
   invitedBy String    @map("invited_by")
-  // A link with no expiry never lapses; revocation is via revokedAt.
+  // createInvitation stamps this INVITATION_TTL_DAYS (7) after creation. Legacy rows
+  // with a null value lapse 7 days after createdAt (effectiveExpiry in lib/invitations.ts),
+  // so no link is open-ended. Revocation is via revokedAt.
   expiresAt DateTime? @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
   createdAt DateTime  @default(now()) @map("created_at")

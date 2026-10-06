@@ -51,8 +51,9 @@ const SENTINEL_ORIGIN = 'http://n.invalid';
  * back to the default. The returned string is the parser's normalised
  * path + query + hash, so what is validated is what is used.
  *
- * Shared by the proxy, the OAuth callback, the login/register pages, and the
- * join flow so the guard is defined once and cannot drift between call sites.
+ * Shared by the proxy, the OAuth callback, and the login/register pages so the guard
+ * is defined once and cannot drift between call sites. The join page doesn't call it:
+ * it only builds `?next=/join/<token>` links, which those auth pages re-check.
  */
 export function sanitizeNext(next: string | null | undefined): string {
   if (!next || !next.startsWith('/')) return DEFAULT_REDIRECT;
