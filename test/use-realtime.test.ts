@@ -814,7 +814,29 @@ describe('useRealtime — status', () => {
     expect(result.current).toBe('reconnecting');
   });
 
-  it('shows reconnecting when reading the session throws', async () => {
+  it('stays live when a session read throws while the channel is up', async () => {
+    fake.state.session = alice;
+    const { result } = renderRealtime();
+    await settle();
+    const channel = liveChannels()[0];
+    act(() => channel.emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+
+    // A refocus calls connect(); the session read fails, but the channel is untouched.
+    fake.client.auth.getSession.mockRejectedValueOnce(new Error('lock stolen'));
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await settle();
+    expect(result.current).toBe('live');
+
+    // The scheduled retry finds the same user's channel and returns early. Nothing
+    // would ever clear a `reconnecting` set above, since no new SUBSCRIBED arrives.
+    await advance(60_000);
+    expect(liveChannels()).toEqual([channel]);
+    expect(channel.removed).toBe(false);
+    expect(result.current).toBe('live');
+  });
+
+  it('shows reconnecting when reading the session throws and no channel is joined', async () => {
     fake.state.session = alice;
     // connect() runs twice on mount (the effect and the initial auth event).
     fake.client.auth.getSession

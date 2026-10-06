@@ -102,10 +102,13 @@ const getServerOnline = (): boolean => true;
  * 8. Status: the hook returns a `RealtimeStatus` for the header. `connecting` is
  *    the state until the channel's first `SUBSCRIBED` (also after a `boardId`
  *    change); `live` follows `SUBSCRIBED`; `reconnecting` follows the outage
- *    branch of (6) and a `connect()` that finds no session or throws. It is only
- *    ever set from a callback or after an await, after the same `disposed` /
- *    `next !== channel` guards as everything else, so a late report from a
- *    replaced channel cannot change it. The browser's own `navigator.onLine`
+ *    branch of (6), a `connect()` that finds no session, and one that throws
+ *    while no channel is joined or joining. With a channel up, a failed refresh
+ *    (say a refocus whose session read throws) leaves the status alone: that
+ *    channel's own callbacks drive it, and no later SUBSCRIBED would ever clear
+ *    a `reconnecting` set here. It is only ever set from a callback or after an
+ *    await, after the same `disposed` / `next !== channel` guards as everything
+ *    else, so a late report from a replaced channel cannot change it. The browser's own `navigator.onLine`
  *    overrides it: a dropped network can leave the socket open until the
  *    heartbeat times out, tens of seconds, and `live` would be a lie meanwhile.
  *    Back online, the channel's own status shows again.
@@ -321,7 +324,8 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>): R
       } catch (err) {
         if (superseded()) return;
         console.error('useRealtime: failed to subscribe', err);
-        setStatus('reconnecting');
+        // A joined channel's own callbacks drive status; see (8).
+        if (!channel) setStatus('reconnecting');
         scheduleResubscribe();
       }
     }
