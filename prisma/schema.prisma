@@ -233,3 +233,17 @@ model ActivityLog {
   @@index([userId])
   @@map("activity_logs")
 }
+
+/// Fixed-window counters for lib/rate-limit.ts, written only via $queryRaw. One row
+/// per (bucket, user), reset in place, so the table is bounded by users × buckets.
+/// Deny-all over the Data API (RLS on, no policy, no grants), like analytics_events.
+/// Deliberately no relation to Profile: see the migration.
+model RateLimit {
+  bucket      String
+  userId      String   @map("user_id")
+  hits        Int
+  windowStart DateTime @map("window_start") @db.Timestamptz(3)
+
+  @@id([bucket, userId])
+  @@map("rate_limits")
+}
