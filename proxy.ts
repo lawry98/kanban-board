@@ -107,6 +107,7 @@ export async function proxy(request: NextRequest) {
     supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
     isDev: process.env.NODE_ENV === 'development',
     reportOnly: CSP_REPORT_ONLY,
+    sentryDsn: env.NEXT_PUBLIC_SENTRY_DSN,
   });
 
   // Next reads the nonce from `content-security-policy || content-security-policy-report-only`

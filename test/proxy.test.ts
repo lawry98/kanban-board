@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 // `proxy` only needs `updateSession`'s `{ response, user }` result — mock it so no
@@ -8,12 +8,15 @@ import type { Mock } from 'vitest';
 vi.mock('@/lib/supabase/middleware', () => ({ updateSession: vi.fn() }));
 // `proxy` reads the Supabase origin from validated env to build the CSP; the real
 // `@/lib/env` throws on import without the full environment.
-vi.mock('@/lib/env', () => ({
+// Hoisted and mutable so a test can switch the Sentry DSN on.
+const mockEnv = vi.hoisted(() => ({
   env: {
     NEXT_PUBLIC_SUPABASE_URL: 'https://abcd.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+    NEXT_PUBLIC_SENTRY_DSN: undefined as string | undefined,
   },
 }));
+vi.mock('@/lib/env', () => mockEnv);
 
 import { CSP_HEADER } from '@/lib/csp';
 import { updateSession } from '@/lib/supabase/middleware';
@@ -192,6 +195,16 @@ describe('content security policy', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    mockEnv.env.NEXT_PUBLIC_SENTRY_DSN = undefined;
+  });
+
+  function connectSrc(res: Response): string[] {
+    const policy = res.headers.get(CSP_HEADER) ?? '';
+    const directive = policy.split(';').find((d) => d.trim().startsWith('connect-src'));
+    return directive?.trim().split(/\s+/).slice(1) ?? [];
+  }
+
   function nonceIn(csp: string): string {
     const match = /'nonce-([^']+)'/.exec(csp);
     if (!match) throw new Error('expected a nonce in the CSP');
@@ -247,6 +260,40 @@ describe('content security policy', () => {
     const forwarded = forwardedHeaders();
     expect(forwarded.get('x-nonce')).not.toBe('attacker');
     expect(forwarded.get('x-nonce')).toBe(nonceIn(res.headers.get(CSP_HEADER) ?? ''));
+  });
+
+  it('allows only the Sentry DSN origin in connect-src when NEXT_PUBLIC_SENTRY_DSN is set', async () => {
+    mockEnv.env.NEXT_PUBLIC_SENTRY_DSN = 'https://0123456789abcdef@o123.ingest.us.sentry.io/456';
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    expect(connectSrc(res)).toEqual([
+      "'self'",
+      'https://abcd.supabase.co',
+      'wss://abcd.supabase.co',
+      'https://o123.ingest.us.sentry.io',
+    ]);
+    expect(res.headers.get(CSP_HEADER)).not.toContain('0123456789abcdef');
+  });
+
+  it('adds nothing to connect-src without a DSN', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    expect(connectSrc(res)).toEqual([
+      "'self'",
+      'https://abcd.supabase.co',
+      'wss://abcd.supabase.co',
+    ]);
+  });
+
+  it('survives a malformed DSN, still setting the policy', async () => {
+    mockEnv.env.NEXT_PUBLIC_SENTRY_DSN = 'javascript:alert(1)';
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    expect(connectSrc(res)).toEqual([
+      "'self'",
+      'https://abcd.supabase.co',
+      'wss://abcd.supabase.co',
+    ]);
   });
 
   it('sets the policy on the signed-in bounce off an auth route', async () => {

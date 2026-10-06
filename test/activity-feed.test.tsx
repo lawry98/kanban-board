@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
 vi.mock('@/app/actions/task-actions', () => ({ getActivityLogs: vi.fn() }));
 
@@ -19,7 +19,11 @@ function makeLog(action: string, metadata: unknown): ActivityLogWithProfile {
 
 async function renderFeedWith(log: ActivityLogWithProfile): Promise<void> {
   vi.mocked(getActivityLogs).mockResolvedValue({ data: [log] });
-  render(<ActivityFeed boardId="board-1" open onOpenChange={vi.fn()} />);
+  // The load resolves in a microtask right after mount; act flushes it so the resulting
+  // state update isn't reported as un-wrapped.
+  await act(async () => {
+    render(<ActivityFeed boardId="board-1" open onOpenChange={vi.fn()} />);
+  });
 }
 
 beforeEach(() => {

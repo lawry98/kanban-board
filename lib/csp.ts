@@ -27,6 +27,23 @@ interface CspOptions {
   isDev: boolean;
   /** Browsers ignore `upgrade-insecure-requests` in a report-only policy and warn, so omit it. */
   reportOnly: boolean;
+  /** `NEXT_PUBLIC_SENTRY_DSN`. Only its origin is allowed in `connect-src`; unusable values are ignored. */
+  sentryDsn?: string;
+}
+
+/** A plain http(s) origin: no `null` (opaque origin), `;` or whitespace that could alter the header. */
+const SAFE_ORIGIN = /^https?:\/\/[\w.-]+(?::\d+)?$/;
+
+/**
+ * The browser SDK POSTs events straight to the DSN's ingest host (`withSentryConfig` sets no
+ * tunnel route), so that origin must be in `connect-src`. The DSN carries a public key and a
+ * project path, neither of which belongs in a policy header. Never throws: this runs on every
+ * request in `proxy.ts`, and an operator typo in the DSN must not take the whole app down.
+ */
+function sentryOrigin(dsn: string | undefined): string | undefined {
+  if (!dsn) return undefined;
+  const origin = URL.parse(dsn)?.origin;
+  return origin && SAFE_ORIGIN.test(origin) ? origin : undefined;
 }
 
 export function buildContentSecurityPolicy({
@@ -34,9 +51,11 @@ export function buildContentSecurityPolicy({
   supabaseUrl,
   isDev,
   reportOnly,
+  sentryDsn,
 }: CspOptions): string {
   const supabase = new URL(supabaseUrl).origin;
   const supabaseSocket = supabase.replace(/^http/, 'ws');
+  const sentry = sentryOrigin(sentryDsn);
 
   const directives: [string, ...string[]][] = [
     ['default-src', "'self'"],
@@ -62,8 +81,8 @@ export function buildContentSecurityPolicy({
       `${supabase}/storage/v1/object/public/`,
     ],
     ['font-src', "'self'"],
-    // Supabase REST/Auth over https; Realtime over wss.
-    ['connect-src', "'self'", supabase, supabaseSocket],
+    // Supabase REST/Auth over https; Realtime over wss; Sentry ingest when a DSN is set.
+    ['connect-src', "'self'", supabase, supabaseSocket, ...(sentry ? [sentry] : [])],
     ['object-src', "'none'"],
     ['base-uri', "'self'"],
     ['form-action', "'self'"],
