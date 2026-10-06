@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 
 import { ROUTES } from '@/lib/auth/redirects';
-import { CSP_HEADER, NONCE_HEADER, buildContentSecurityPolicy, generateNonce } from '@/lib/csp';
+import {
+  CSP_HEADER,
+  CSP_REPORT_ONLY,
+  NONCE_HEADER,
+  buildContentSecurityPolicy,
+  generateNonce,
+} from '@/lib/csp';
 import { env } from '@/lib/env';
 import { updateSession } from '@/lib/supabase/middleware';
 
@@ -81,10 +87,15 @@ export async function proxy(request: NextRequest) {
     nonce,
     supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
     isDev: process.env.NODE_ENV === 'development',
+    reportOnly: CSP_REPORT_ONLY,
   });
 
-  // Overwrites any client-sent values. Next reads the nonce from the CSP request header.
+  // Next reads the nonce from `content-security-policy || content-security-policy-report-only`
+  // on the request, so drop both client-sent values first: whichever name we don't set below
+  // must not survive and win that lookup.
   const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete('content-security-policy');
+  requestHeaders.delete('content-security-policy-report-only');
   requestHeaders.set(NONCE_HEADER, nonce);
   requestHeaders.set(CSP_HEADER, csp);
 

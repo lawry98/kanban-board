@@ -15,6 +15,7 @@ vi.mock('@/lib/env', () => ({
   },
 }));
 
+import { CSP_HEADER } from '@/lib/csp';
 import { updateSession } from '@/lib/supabase/middleware';
 import { proxy } from '@/proxy';
 
@@ -104,6 +105,8 @@ describe('proxy', () => {
 });
 
 describe('content security policy', () => {
+  const CSP_NAMES = new Set(['content-security-policy', 'content-security-policy-report-only']);
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -124,7 +127,7 @@ describe('content security policy', () => {
   it('sets a nonce + strict-dynamic policy on a passthrough response', async () => {
     stubSession(FAKE_USER);
     const res = await proxy(request('/boards'));
-    const csp = res.headers.get('Content-Security-Policy');
+    const csp = res.headers.get(CSP_HEADER);
     expect(csp).toContain("'strict-dynamic'");
     expect(csp).toMatch(/'nonce-[^']+'/);
     expect(res).toBe(passthrough);
@@ -133,17 +136,17 @@ describe('content security policy', () => {
   it('forwards the same nonce and policy to the render as request headers', async () => {
     stubSession(FAKE_USER);
     const res = await proxy(request('/boards'));
-    const csp = res.headers.get('Content-Security-Policy') ?? '';
+    const csp = res.headers.get(CSP_HEADER) ?? '';
     const forwarded = forwardedHeaders();
     expect(forwarded.get('x-nonce')).toBe(nonceIn(csp));
-    expect(forwarded.get('content-security-policy')).toBe(csp);
+    expect(forwarded.get(CSP_HEADER)).toBe(csp);
   });
 
   it('sets the policy on a redirect too', async () => {
     stubSession(null);
     const res = await proxy(request('/boards', 'GET'));
     expect(location(res)).toBe('/login');
-    expect(res.headers.get('Content-Security-Policy')).toContain("'strict-dynamic'");
+    expect(res.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
   });
 
   it('uses a different nonce for every request', async () => {
@@ -151,8 +154,8 @@ describe('content security policy', () => {
     const first = await proxy(request('/boards'));
     stubSession(FAKE_USER);
     const second = await proxy(request('/boards'));
-    expect(nonceIn(first.headers.get('Content-Security-Policy') ?? '')).not.toBe(
-      nonceIn(second.headers.get('Content-Security-Policy') ?? ''),
+    expect(nonceIn(first.headers.get(CSP_HEADER) ?? '')).not.toBe(
+      nonceIn(second.headers.get(CSP_HEADER) ?? ''),
     );
   });
 
@@ -162,8 +165,37 @@ describe('content security policy', () => {
     const res = await proxy(req);
     const forwarded = forwardedHeaders();
     expect(forwarded.get('x-nonce')).not.toBe('attacker');
-    expect(forwarded.get('x-nonce')).toBe(
-      nonceIn(res.headers.get('Content-Security-Policy') ?? ''),
-    );
+    expect(forwarded.get('x-nonce')).toBe(nonceIn(res.headers.get(CSP_HEADER) ?? ''));
+  });
+
+  it('sets the policy on the signed-in bounce off an auth route', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/register', 'GET'));
+    expect(location(res)).toBe('/boards');
+    expect(res.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
+  });
+
+  // Next takes the nonce from `content-security-policy || content-security-policy-report-only`
+  // on the request, so a client-sent header of either name must never reach it.
+  it('drops client-sent CSP request headers so only the server policy is forwarded', async () => {
+    stubSession(FAKE_USER);
+    const req = new NextRequest(new URL('/boards', ORIGIN), {
+      headers: {
+        'content-security-policy': "script-src 'nonce-attacker'",
+        'content-security-policy-report-only': "script-src 'nonce-attacker'",
+      },
+    });
+    const res = await proxy(req);
+    const csp = res.headers.get(CSP_HEADER) ?? '';
+    const forwarded = forwardedHeaders();
+
+    const forwardedPolicy = forwarded.get(CSP_HEADER) ?? '';
+    expect(forwardedPolicy).toBe(csp);
+    expect(forwardedPolicy).not.toContain('attacker');
+    expect(nonceIn(forwardedPolicy)).toBe(forwarded.get('x-nonce'));
+
+    // The header name that is not in use must be absent, not left as the client's value.
+    const unused = [...CSP_NAMES].find((name) => name !== CSP_HEADER.toLowerCase());
+    expect(forwarded.get(unused ?? '')).toBeNull();
   });
 });

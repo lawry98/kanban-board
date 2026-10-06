@@ -6,10 +6,16 @@
 export const NONCE_HEADER = 'x-nonce';
 
 /**
- * Enforced. Swap for 'Content-Security-Policy-Report-Only' to observe without
- * blocking; Next extracts the nonce from either.
+ * Ships Report-Only until a browser pass confirms no violations on every flow
+ * (auth, OAuth, board, drag-and-drop, Realtime, avatars). Flip to `false` to enforce.
+ * Next extracts the nonce from either header (app-render.js), so nothing else changes.
  */
-export const CSP_HEADER = 'Content-Security-Policy';
+export const CSP_REPORT_ONLY = true;
+
+/** The response header carrying the policy, and the request header Next reads the nonce from. */
+export const CSP_HEADER = CSP_REPORT_ONLY
+  ? 'Content-Security-Policy-Report-Only'
+  : 'Content-Security-Policy';
 
 export function generateNonce(): string {
   return Buffer.from(crypto.randomUUID()).toString('base64');
@@ -19,9 +25,16 @@ interface CspOptions {
   nonce: string;
   supabaseUrl: string;
   isDev: boolean;
+  /** Browsers ignore `upgrade-insecure-requests` in a report-only policy and warn, so omit it. */
+  reportOnly: boolean;
 }
 
-export function buildContentSecurityPolicy({ nonce, supabaseUrl, isDev }: CspOptions): string {
+export function buildContentSecurityPolicy({
+  nonce,
+  supabaseUrl,
+  isDev,
+  reportOnly,
+}: CspOptions): string {
   const supabase = new URL(supabaseUrl).origin;
   const supabaseSocket = supabase.replace(/^http/, 'ws');
 
@@ -58,6 +71,6 @@ export function buildContentSecurityPolicy({ nonce, supabaseUrl, isDev }: CspOpt
   ];
 
   const policy = directives.map((d) => d.join(' '));
-  if (!isDev) policy.push('upgrade-insecure-requests');
+  if (!isDev && !reportOnly) policy.push('upgrade-insecure-requests');
   return policy.join('; ');
 }
