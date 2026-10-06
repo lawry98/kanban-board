@@ -15,11 +15,13 @@ Built with Next.js 16 (App Router), TypeScript, Prisma 7, and Supabase (Postgres
 
 ### How a reviewer gets in
 
-1. Open the app and create an account at `/register` (name, email, password). If the project has email confirmations on, click the link in the confirmation email.
+1. Open the app and create an account at `/register` (name, email, password), or use **Continue with GitHub**. The demo does not send confirmation emails: you are signed in straight away and land on `/boards`, or back on the invite if you came from it.
 2. Open the demo invite link and click **Join board**. You join "Demo — Website Launch" as an **Editor**. Opening the link while signed out also works: it offers **Sign in** and **Create an account** and brings you back to the invite. Prefer your own data? Skip the link and create a board from `/boards`.
 3. Open the board in two browser windows (a private window signed in as a second account shows it best). Move a card or edit a task in one; the other updates within a second or two.
 
 The demo board is shared by every reviewer. Edits are last-write-wins: if two people change the same field, the later save overwrites the earlier one, and you may find cards moved or renamed by someone else.
+
+**Other demo members see your name and email.** They appear in the board's member list, in the assignee picker, and in the activity feed (`added <email> as editor`). With GitHub sign-in that is your GitHub name, email and avatar. If that bothers you, sign up with an alias address, or skip the invite and create your own board.
 
 ### Maintainer: create the demo board and invite link
 
@@ -28,7 +30,8 @@ The demo board is shared by every reviewer. Edits are last-write-wins: if two pe
    ```bash
    DATABASE_URL='<production pooler URL>' ALLOW_DEMO_SEED=1 pnpm db:seed --email <your email>
    ```
-3. Open "Demo — Website Launch", click **Share**, stay on the **Invite link** tab, leave the role on **Editor — can create and edit tasks**, and click **Create link**. Copy the link with the copy icon and paste it into this README. Revoke it from the same dialog if it leaks.
+   An inline `DATABASE_URL=…` lands in your shell history. To avoid that, `export` it first from a file or a password manager and drop the inline value; `unset DATABASE_URL` afterwards, or later commands in that shell hit production. Or prefix the command with a space, if your shell ignores such lines (zsh `setopt HIST_IGNORE_SPACE`, bash `HISTCONTROL=ignorespace`).
+3. Open "Demo — Website Launch", click **Share**, stay on the **Invite link** tab, leave the role on **Editor — can create and edit tasks**, and click **Create link**. Copy the link with the copy icon and paste it into this README. The link is public by design, so anyone who reads this README can join. If someone vandalises the board, revoke the link from the same dialog, reset the board (see [Demo data](#demo-data)) and publish a new link.
 
 ## Screenshots
 
@@ -126,7 +129,7 @@ ALLOW_DEMO_SEED=1 pnpm db:seed --user-id <uuid>
 
 ## Error monitoring (optional)
 
-Sentry covers the server, edge and browser. It is inert until a DSN is set: with no DSN the SDK is never initialised, no source maps are generated or uploaded, and `pnpm build` passes unchanged.
+Sentry covers the server, edge and browser. It is inert only when no DSN and no `SENTRY_AUTH_TOKEN` are set: without a DSN the SDK is never initialised, without the token no source maps are generated or uploaded, and with neither `pnpm build` passes unchanged. A token on its own still generates and uploads source maps.
 
 | Variable                 | Effect                                                                                                 |
 | ------------------------ | ------------------------------------------------------------------------------------------------------ |
@@ -137,8 +140,8 @@ Sentry covers the server, edge and browser. It is inert until a DSN is set: with
 | `SENTRY_PROJECT`         | Sentry project slug for the upload (used with the token)                                               |
 
 - **What is reported:** uncaught server errors, unexpected errors caught by Server Actions (`toActionError` in `lib/auth/require-access.ts`; expected outcomes such as validation failures and "Forbidden" are not sent), and the error boundaries (`app/error.tsx`, `app/global-error.tsx`). Traces are sampled at 10% in production. There is no Session Replay.
-- **Privacy:** cookies, auth headers, request bodies, user info and invite tokens are kept out of Sentry events. The options live in `lib/sentry-options.ts`.
-- **Build failures:** if the source-map upload fails (bad token, Sentry outage), the build logs `Sentry build step failed (continuing)` as a warning and carries on. Source maps are deleted from the build output after a successful upload.
+- **Privacy:** cookies, request bodies, user info and invite tokens are kept out of Sentry events, and only an allow-list of request and response headers (such as `user-agent` and `content-type`) is sent. The options live in `lib/sentry-options.ts`.
+- **Build failures:** if the source-map upload fails (bad token, Sentry outage), the build logs `Sentry build step failed (continuing)` as a warning and carries on. The generated source maps are deleted from the build output once the upload step finishes, whether it succeeded or failed, so none are served publicly.
 
 ## Quality gates
 
@@ -179,6 +182,8 @@ Target: Vercel, with Supabase for the database and auth. Do these in order.
    DIRECT_URL='<production direct URL>' pnpm prisma migrate deploy
    ```
 
+   The shell-history advice under [the seed command](#maintainer-create-the-demo-board-and-invite-link) applies here too.
+
    If the direct host (`db.<ref>.supabase.co`) is IPv6-only and your network has no IPv6 route, use the session pooler instead: the same pooler host as `DATABASE_URL`, port 5432, without the query string. `prisma.config.ts` does not override a `DIRECT_URL` that is already set in your shell.
 
 4. **Configure Supabase Auth** (Authentication → URL Configuration):
@@ -188,14 +193,28 @@ Target: Vercel, with Supabase for the database and auth. Do these in order.
      - `https://*-<vercel-team-slug>.vercel.app/**` for preview deployments
      - `http://localhost:3000/**` for local development
 
-   In these patterns `*` matches any run of characters except `.` and `/`, and `**` matches anything. So the preview pattern matches one hostname label such as `<project>-<hash>-<team-slug>.vercel.app` and every path and query beneath it. The sign-in, register and forgot-password pages build their redirect from `window.location.origin` and append `?next=…` to `/auth/callback`, so any domain on the list works without code or env changes. Email links and GitHub sign-in only return to a domain that is on the list. Supabase recommends the exact callback path rather than `**` for the production entry; if you narrow it, re-test the confirmation email, password reset and GitHub sign-in.
+   In these patterns `*` matches any run of characters except `.` and `/`, and `**` matches anything. So the preview pattern matches one hostname label such as `<project>-<hash>-<team-slug>.vercel.app` and every path and query beneath it. The sign-in, register and forgot-password pages build their redirect from `window.location.origin` and append `?next=…` to `/auth/callback`, so any domain on the list works without code or env changes. Email links and GitHub sign-in only return to a domain that is on the list. Supabase recommends the exact callback path rather than `**` for the production entry; if you narrow it, re-test password reset, GitHub sign-in and, if you kept it on, the confirmation email.
 
    Source: Supabase docs, [Redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls) (sections "Use wildcards in redirect URLs" and "Vercel preview URLs").
 
-5. **Deploy**, then set the real URL in the [Live demo](#live-demo) section above.
-6. **Create the demo board and invite link.** Sign up on the deployed app, then follow [Maintainer: create the demo board and invite link](#maintainer-create-the-demo-board-and-invite-link).
-7. **Smoke test** on the deployed URL:
-   - Sign up at `/register` (confirm via email if confirmations are on) and land on `/boards`.
+5. **Turn off email confirmation** for the demo project: Authentication → Sign In / Providers → Email, switch off **Confirm email**, save. Supabase's built-in email sender only delivers to members of the project's organization (anyone else gets `Email address not authorized`) and sends only a few messages per hour, so reviewers could never confirm an account. With confirmation off, sign-up returns a session and the register page sends the user straight to `/boards`, or back to the invite when they came from one.
+   - Trade-off: email addresses are not verified, so anyone can register with any address.
+   - Alternative: keep **Confirm email** on and set up custom SMTP on the Authentication → [Custom SMTP](https://supabase.com/dashboard/project/_/auth/smtp) page.
+   - Without custom SMTP, password-reset emails also reach organization members only.
+
+   Source: Supabase docs, [Send emails with custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp) and [General configuration](https://supabase.com/docs/guides/auth/general-configuration) ("Confirm Email").
+
+6. **Enable GitHub sign-in.** The login and register pages offer **Continue with GitHub**, which fails until the provider is enabled.
+   - In GitHub (Settings → Developer settings → OAuth Apps → New OAuth App), set the Homepage URL to `https://<prod-domain>` and the Authorization callback URL to `https://<project-ref>.supabase.co/auth/v1/callback`. That is Supabase's callback, not the app's `/auth/callback`; Supabase shows the exact value on the GitHub provider panel. Generate a client secret.
+   - In Supabase (Authentication → Sign In / Providers → GitHub), enable the provider and paste the client ID and secret.
+
+   Source: Supabase docs, [Login with GitHub](https://supabase.com/docs/guides/auth/social-login/auth-github).
+
+7. **Deploy**, then set the real URL in the [Live demo](#live-demo) section above.
+8. **Create the demo board and invite link.** Sign up on the deployed app, then follow [Maintainer: create the demo board and invite link](#maintainer-create-the-demo-board-and-invite-link).
+9. **Smoke test** on the deployed URL:
+   - Sign up at `/register` with a fresh address: you land on `/boards` with no confirmation email.
+   - Sign in with GitHub in a private window and land on `/boards`.
    - While signed in, open `/does-not-exist`: the "Page not found" page renders.
    - Open the demo board in two windows and edit a task in one; the other updates.
    - Open the invite link in a private window: it shows the join prompt for the demo board.

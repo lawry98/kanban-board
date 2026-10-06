@@ -51,18 +51,19 @@ function scrubInviteTokens<T>(value: T, copies = new WeakMap<object, unknown>())
  *
  * SDK v11 collects user info, cookies, headers, request/response bodies and database query data
  * by default. Here the Supabase session lives in `sb-*-auth-token` cookies and board content
- * travels in Server Action bodies, so each category is switched off or narrowed. The SDK also
- * masks keys that look like tokens, keys or sessions. The deny-lists add what it misses:
- *  - IP headers. `userInfo: false` strips the standard IP headers from error events only. Span
- *    header attributes keep them, and the `x-vercel-ip-*` geo headers are never stripped.
- *  - Request headers that can carry an invite token: `referer` (an invite path) and
- *    `next-router-*` (`Next-Router-State-Tree` holds the token as an encoded route param, with
- *    no `/join/` prefix for the scrubber to match). Entries match as case-insensitive substrings.
- *  - The `next` query parameter (an encoded invite path) and the one-time auth `code`.
+ * travels in Server Action bodies, so each category is switched off or narrowed:
+ *  - Headers are allow-listed in both directions; every other header is sent as `[Filtered]`.
+ *    A deny-list kept missing headers that carry an invite token or a client IP (`referer`,
+ *    `Next-Router-State-Tree`, `Next-Url`, `x-vercel-ip-*`, proxy IP headers). Terms match as
+ *    case-insensitive substrings, so `accept` also admits `accept-encoding` and `host` admits
+ *    `x-forwarded-host`. The SDK's own sensitive-key snippets (`auth`, `token`, `secret`, …)
+ *    still win over the allow-list.
+ *  - `cookies: false` drops the `cookie` and `set-cookie` headers outright.
+ *  - The `next` query parameter (an encoded invite path) and the one-time auth `code` are denied.
  * The scrubber hooks rewrite `/join/<token>` in every string of an error event, span or
  * breadcrumb: URLs, transaction and span names, span attributes, breadcrumb data and the
  * `nextjs.request_path` context. They cannot see a token outside that path shape, which is why
- * the header deny-list is needed too. No Session Replay.
+ * the header allow-list is needed too. No Session Replay.
  */
 export const SENTRY_SHARED_OPTIONS: SentryInitOptions = {
   tracesSampleRate: process.env.NODE_ENV === 'development' ? 1.0 : 0.1,
@@ -75,19 +76,16 @@ export const SENTRY_SHARED_OPTIONS: SentryInitOptions = {
     databaseQueryData: false,
     httpHeaders: {
       request: {
-        deny: [
-          'authorization',
-          'cookie',
-          'referer',
-          'next-router',
-          'forwarded',
-          'x-real-ip',
-          'x-vercel-ip',
-          'cf-connecting-ip',
-          'true-client-ip',
+        allow: [
+          'user-agent',
+          'accept',
+          'accept-language',
+          'content-type',
+          'content-length',
+          'host',
         ],
       },
-      response: { deny: ['set-cookie'] },
+      response: { allow: ['content-type', 'content-length', 'cache-control'] },
     },
     urlQueryParams: { deny: ['code', 'next'] },
   },

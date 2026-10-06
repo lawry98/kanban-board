@@ -61,13 +61,17 @@ describe('redactInviteTokens', () => {
   });
 });
 
-describe('request header collection', () => {
+describe('header collection', () => {
   // The SDK's own filter, as applied to the server root span's header attributes. Error events
-  // run the same deny-list through the same matcher.
-  const collect = (headers: Record<string, string>) =>
+  // run the same allow-list through the same matcher (`shouldFilterDataKey`).
+  const collect = (
+    headers: Record<string, string>,
+    lifecycle: 'request' | 'response' = 'request',
+  ) =>
     httpHeadersToSpanAttributes(
       headers,
       SENTRY_SHARED_OPTIONS.dataCollection as Parameters<typeof httpHeadersToSpanAttributes>[1],
+      lifecycle,
     );
 
   it('filters the router state tree, which carries the invite token without a /join/ prefix', () => {
@@ -82,14 +86,14 @@ describe('request header collection', () => {
   it.each([
     ['referer', `https://kanban.example.com/join/${TOKEN}`],
     ['x-forwarded-for', '203.0.113.7'],
-    ['x-vercel-forwarded-for', '203.0.113.7'],
-    ['forwarded', 'for=203.0.113.7'],
-    ['x-real-ip', '203.0.113.7'],
     ['x-vercel-ip-city', 'Boston'],
-    ['cf-connecting-ip', '203.0.113.7'],
-    ['true-client-ip', '203.0.113.7'],
     ['authorization', 'Bearer abc'],
-  ])('filters %s', (name, value) => {
+    // Headers no deny-list named: an unknown secret, a proxy IP header and Next's current-URL
+    // header. Only an allow-list filters every header nobody thought of.
+    ['x-custom-secret', 's3cr3t'],
+    ['x-client-ip', '203.0.113.7'],
+    ['next-url', `/join/${TOKEN}`],
+  ])('filters the %s request header', (name, value) => {
     expect(collect({ [name]: value })).toEqual({ [`http.request.header.${name}`]: ['[Filtered]'] });
   });
 
@@ -97,9 +101,45 @@ describe('request header collection', () => {
     expect(collect({ cookie: 'sb-project-auth-token=secret' })).toEqual({});
   });
 
-  it('keeps harmless headers', () => {
-    expect(collect({ accept: 'text/html' })).toEqual({
+  it('keeps the allowed request headers', () => {
+    expect(
+      collect({
+        'User-Agent': 'Mozilla/5.0',
+        accept: 'text/html',
+        'accept-language': 'en-US',
+        'content-type': 'text/plain',
+        'content-length': '42',
+        host: 'kanban.example.com',
+      }),
+    ).toEqual({
+      'http.request.header.user-agent': ['Mozilla/5.0'],
       'http.request.header.accept': ['text/html'],
+      'http.request.header.accept-language': ['en-US'],
+      'http.request.header.content-type': ['text/plain'],
+      'http.request.header.content-length': ['42'],
+      'http.request.header.host': ['kanban.example.com'],
+    });
+  });
+
+  it('keeps only the allowed response headers', () => {
+    expect(
+      collect(
+        {
+          'content-type': 'text/html',
+          'content-length': '512',
+          'cache-control': 'no-store',
+          location: `/join/${TOKEN}`,
+          'x-custom-secret': 's3cr3t',
+          'set-cookie': 'sb-project-auth-token=secret',
+        },
+        'response',
+      ),
+    ).toEqual({
+      'http.response.header.content-type': ['text/html'],
+      'http.response.header.content-length': ['512'],
+      'http.response.header.cache-control': ['no-store'],
+      'http.response.header.location': ['[Filtered]'],
+      'http.response.header.x-custom-secret': ['[Filtered]'],
     });
   });
 });

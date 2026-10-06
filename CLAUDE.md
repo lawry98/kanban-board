@@ -28,6 +28,8 @@ A real-time collaborative Kanban board built with Next.js, TypeScript, and Supab
 | Package Manager  | pnpm (via mise)                                 |
 | Deployment       | Vercel                                          |
 | Linting          | ESLint 9 (flat config) + Prettier               |
+| Error monitoring | Sentry (`@sentry/nextjs`, inert without env)    |
+| Scripts          | tsx (`pnpm db:seed`)                            |
 
 ---
 
@@ -38,7 +40,8 @@ Code lives at the **repository root** — there is no `src/` directory. The `@/*
 ```
 app/                              # Next.js App Router
 ├── (auth)/                       # Auth route group (login, register, forgot/reset password, auth-code-error);
-│                                 #   each page has its own layout.tsx that sets its title
+│                                 #   each page except login has a metadata-only layout.tsx setting its title;
+│                                 #   login uses the group default "Sign In" from (auth)/layout.tsx
 ├── (dashboard)/                  # Protected route group
 │   ├── board/[boardId]/          # Individual board view
 │   └── boards/                   # Board listing
@@ -307,7 +310,7 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 
 - `try/catch` every async op. Server Actions return `toActionError(...)`; components surface `{ error }` via `sonner` toasts and must not treat a failed load as an empty state.
 - `console.error` for logging (the `no-console` rule allows `warn`/`error`). Never expose raw DB errors.
-- **Sentry** (`@sentry/nextjs`): `toActionError` reports unexpected errors via `Sentry.captureException` (tag `action: context`) and flushes with `after()`; `PublicError` and `ZodError` are expected outcomes and are not sent. `app/error.tsx` and `app/global-error.tsx` call `captureException`; uncaught server errors go through `onRequestError`. Everything is inert unless a DSN is set. Collection limits (no cookies, request bodies, user info or invite tokens) live in `lib/sentry-options.ts` — don't loosen them.
+- **Sentry** (`@sentry/nextjs`): `toActionError` reports unexpected errors via `Sentry.captureException` (tag `action: context`) and flushes with `after()`; `PublicError` and `ZodError` are expected outcomes and are not sent. `app/error.tsx` and `app/global-error.tsx` call `captureException`; uncaught server errors go through `onRequestError`. The SDK is inert unless a DSN is set, and source maps are generated and uploaded only when `SENTRY_AUTH_TOKEN` is set. Collection limits (no cookies, request bodies, user info or invite tokens; request and response headers are allow-listed) live in `lib/sentry-options.ts` — don't loosen them, and don't turn the header allow-lists back into deny-lists.
 
 ---
 
@@ -371,7 +374,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection, the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404/global-error pages and the auth page titles are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection (incl. unknown routes passing through to the 404 when signed in), the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404 page, both error boundaries and the auth page titles are covered; most Server Actions and components are not.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.
