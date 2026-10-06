@@ -13,7 +13,7 @@ const COLUMN_PLACEHOLDERS = [
 
 export default function BoardLoading() {
   return (
-    <div className="flex h-[calc(100vh-56px)] flex-col overflow-hidden">
+    <div className="flex h-[calc(100dvh-56px)] flex-col overflow-hidden">
       {/* Matches BoardHeader layout */}
       <div className="flex items-center justify-between border-b px-4 py-3 sm:px-6">
         <div className="flex flex-col gap-1.5">

@@ -92,7 +92,7 @@ function BoardContent() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-56px)] flex-col overflow-hidden">
+    <div className="flex h-[calc(100dvh-56px)] flex-col overflow-hidden">
       <BoardHeader onOpenActivity={() => setActivityOpen(true)} />
 
       {/* First-run coaching: only while the board has columns but no tasks, and only
@@ -119,8 +119,11 @@ function BoardContent() {
 
       {/* The only scroll container for every column list, on both axes. @hello-pangea/dnd
           supports one scroll parent per Droppable; a column that also scrolled would be
-          nested (dev warning, and auto-scroll + keyboard moves stop tracking the board). */}
-      <div className="flex-1 overflow-auto" data-board-scroll-container>
+          nested (dev warning, and auto-scroll + keyboard moves stop tracking the board).
+          `relative` makes it the containing block for absolutely positioned descendants
+          (`sr-only` text), which would otherwise escape it and stretch the page.
+          `data-board-scroll-container` is also a test hook. */}
+      <div className="relative flex-1 overflow-auto" data-board-scroll-container>
         <DragDropContext
           dragHandleUsageInstructions={DRAG_HANDLE_INSTRUCTIONS}
           onDragStart={(start, provided) =>

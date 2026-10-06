@@ -137,6 +137,43 @@ describe('BoardView scroll structure', () => {
   });
 });
 
+describe('BoardView layout containment', () => {
+  // A task with every piece of sr-only card text: hidden labels, a due date, an assignee.
+  const DETAILED: TaskWithAssignee = {
+    ...makeTask('t1', 'todo', 'Write launch post'),
+    labels: ['launch', 'copy', 'blog', 'seo'],
+    dueDate: new Date('2026-10-02T00:00:00.000Z'),
+    assigneeId: USER_ID,
+    assignee: { id: USER_ID, fullName: 'Ada Lovelace', avatarUrl: null },
+  };
+
+  /** The nearest ancestor that is a containing block for `position: absolute`. */
+  function positionedAncestor(el: HTMLElement): HTMLElement | null {
+    for (let a = el.parentElement; a; a = a.parentElement) {
+      if (/\b(relative|absolute|fixed|sticky)\b/.test(a.className)) return a;
+      if (a.style.position && a.style.position !== 'static') return a;
+    }
+    return null;
+  }
+
+  // jsdom has no layout, so pin the cause instead: `sr-only` is `position: absolute`, and
+  // with no positioned ancestor it escapes the board's overflow and stretches the page.
+  it('keeps every sr-only element inside a positioned ancestor within the board', () => {
+    const { container } = renderBoard([makeColumn('todo', 'To do', [DETAILED])]);
+    const board = container.querySelector<HTMLElement>('[data-board-scroll-container]')!;
+    const hidden = board.querySelectorAll<HTMLElement>('.sr-only');
+    expect(hidden.length).toBeGreaterThanOrEqual(3);
+
+    const card = screen.getByRole('button', { name: 'Write launch post' });
+    for (const el of hidden) {
+      const anchor = positionedAncestor(el);
+      expect(board).toContainElement(anchor);
+      // Inside a card, the card itself is the anchor.
+      if (card.contains(el)) expect(card).toContainElement(anchor);
+    }
+  });
+});
+
 describe('BoardView drag instructions', () => {
   it('tells an editor on a card that Enter opens it', () => {
     renderBoard();

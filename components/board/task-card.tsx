@@ -77,7 +77,9 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
               onClick(task);
             }}
             className={cn(
-              'group bg-card rounded-md border p-3 text-sm shadow-sm',
+              // `relative` keeps the card's sr-only text inside it; dnd's inline
+              // `position: fixed` takes over while dragging.
+              'group bg-card relative rounded-md border p-3 text-sm shadow-sm',
               'transition-shadow hover:shadow-md',
               'focus-visible:ring-ring outline-none focus-visible:ring-2',
               canEdit ? 'cursor-pointer' : 'cursor-default',
