@@ -6,6 +6,14 @@ import type { Mock } from 'vitest';
 // real Supabase SSR client, cookies, or network round-trip is involved, matching the
 // mocking style used for `createClient` in `test/auth-callback-route.test.ts`.
 vi.mock('@/lib/supabase/middleware', () => ({ updateSession: vi.fn() }));
+// `proxy` reads the Supabase origin from validated env to build the CSP; the real
+// `@/lib/env` throws on import without the full environment.
+vi.mock('@/lib/env', () => ({
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: 'https://abcd.supabase.co',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+  },
+}));
 
 import { updateSession } from '@/lib/supabase/middleware';
 import { proxy } from '@/proxy';
@@ -92,5 +100,70 @@ describe('proxy', () => {
       const res = await proxy(request(path, 'GET'));
       expect(res.headers.get('location')).toBeNull();
     }
+  });
+});
+
+describe('content security policy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function nonceIn(csp: string): string {
+    const match = /'nonce-([^']+)'/.exec(csp);
+    if (!match) throw new Error('expected a nonce in the CSP');
+    return match[1];
+  }
+
+  /** The request headers `proxy` handed to `updateSession` as its second argument. */
+  function forwardedHeaders(): Headers {
+    const headers = mockedUpdateSession.mock.calls[0][1];
+    expect(headers).toBeInstanceOf(Headers);
+    return headers as Headers;
+  }
+
+  it('sets a nonce + strict-dynamic policy on a passthrough response', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    const csp = res.headers.get('Content-Security-Policy');
+    expect(csp).toContain("'strict-dynamic'");
+    expect(csp).toMatch(/'nonce-[^']+'/);
+    expect(res).toBe(passthrough);
+  });
+
+  it('forwards the same nonce and policy to the render as request headers', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    const csp = res.headers.get('Content-Security-Policy') ?? '';
+    const forwarded = forwardedHeaders();
+    expect(forwarded.get('x-nonce')).toBe(nonceIn(csp));
+    expect(forwarded.get('content-security-policy')).toBe(csp);
+  });
+
+  it('sets the policy on a redirect too', async () => {
+    stubSession(null);
+    const res = await proxy(request('/boards', 'GET'));
+    expect(location(res)).toBe('/login');
+    expect(res.headers.get('Content-Security-Policy')).toContain("'strict-dynamic'");
+  });
+
+  it('uses a different nonce for every request', async () => {
+    stubSession(FAKE_USER);
+    const first = await proxy(request('/boards'));
+    stubSession(FAKE_USER);
+    const second = await proxy(request('/boards'));
+    expect(nonceIn(first.headers.get('Content-Security-Policy') ?? '')).not.toBe(
+      nonceIn(second.headers.get('Content-Security-Policy') ?? ''),
+    );
+  });
+
+  it('overwrites a client-supplied x-nonce header', async () => {
+    stubSession(FAKE_USER);
+    const req = new NextRequest(new URL('/boards', ORIGIN), { headers: { 'x-nonce': 'attacker' } });
+    const res = await proxy(req);
+    const forwarded = forwardedHeaders();
+    expect(forwarded.get('x-nonce')).not.toBe('attacker');
+    expect(forwarded.get('x-nonce')).toBe(
+      nonceIn(res.headers.get('Content-Security-Policy') ?? ''),
+    );
   });
 });

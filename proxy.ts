@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { ROUTES } from '@/lib/auth/redirects';
+import { CSP_HEADER, NONCE_HEADER, buildContentSecurityPolicy, generateNonce } from '@/lib/csp';
+import { env } from '@/lib/env';
 import { updateSession } from '@/lib/supabase/middleware';
 
 import type { NextRequest } from 'next/server';
@@ -67,12 +69,30 @@ function redirectWithCookies(source: NextResponse, url: URL): NextResponse {
   return redirect;
 }
 
+/** Every response the proxy returns carries the policy — redirects included. */
+function withCsp(response: NextResponse, csp: string): NextResponse {
+  response.headers.set(CSP_HEADER, csp);
+  return response;
+}
+
 export async function proxy(request: NextRequest) {
-  const { response, user } = await updateSession(request);
+  const nonce = generateNonce();
+  const csp = buildContentSecurityPolicy({
+    nonce,
+    supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
+    isDev: process.env.NODE_ENV === 'development',
+  });
+
+  // Overwrites any client-sent values. Next reads the nonce from the CSP request header.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(NONCE_HEADER, nonce);
+  requestHeaders.set(CSP_HEADER, csp);
+
+  const { response, user } = await updateSession(request, requestHeaders);
   const { pathname } = request.nextUrl;
 
   if (!user && !isPublicRoute(pathname)) {
-    return redirectWithCookies(response, new URL(LOGIN_ROUTE, request.url));
+    return withCsp(redirectWithCookies(response, new URL(LOGIN_ROUTE, request.url)), csp);
   }
 
   // Only bounce document requests (GET/HEAD) away from auth routes. A Server Action
@@ -82,10 +102,13 @@ export async function proxy(request: NextRequest) {
   // signed_up analytics emission — never runs. Redirecting a POST to a GET target
   // is meaningless anyway, so gating on method loses nothing.
   if (user && isAuthRoute(pathname) && isDocumentRequest(request.method)) {
-    return redirectWithCookies(response, new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url));
+    return withCsp(
+      redirectWithCookies(response, new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url)),
+      csp,
+    );
   }
 
-  return response;
+  return withCsp(response, csp);
 }
 
 export const config = {
