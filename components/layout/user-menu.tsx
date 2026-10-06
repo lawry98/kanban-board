@@ -67,7 +67,7 @@ export function UserMenu({ name, email, avatarUrl }: UserMenuProps) {
         >
           <Avatar className="h-8 w-8">
             {avatarUrl && <AvatarImage src={avatarUrl} alt={name} />}
-            <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+            <AvatarFallback className="text-foreground text-xs">{initials}</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
@@ -87,7 +87,8 @@ export function UserMenu({ name, email, avatarUrl }: UserMenuProps) {
         <DropdownMenuItem
           onClick={handleSignOut}
           disabled={isLoading}
-          className="text-destructive focus:text-destructive"
+          // On the focused item's accent, light destructive is 4.37:1 and red-700 5.89:1.
+          className="dark:text-destructive dark:focus:text-destructive text-red-700 focus:text-red-700"
         >
           <LogOut className="mr-2 h-4 w-4" />
           Sign out

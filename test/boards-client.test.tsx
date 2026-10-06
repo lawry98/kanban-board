@@ -41,3 +41,11 @@ describe('BoardsClient', () => {
     expect(link).toHaveAccessibleDescription(/updated 2 days ago/i);
   });
 });
+
+describe('BoardsClient empty state', () => {
+  it('heads the empty state at level 2, under the page h1', () => {
+    render(<BoardsClient boards={[]} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Boards' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'No boards yet' })).toBeInTheDocument();
+  });
+});

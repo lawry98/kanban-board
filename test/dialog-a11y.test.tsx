@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -38,9 +38,14 @@ const TASK: TaskWithAssignee = {
   creator: { id: USER_ID, fullName: 'Ada Lovelace', avatarUrl: null },
 };
 
+const MEMBER = {
+  userId: USER_ID,
+  profile: { fullName: 'Ada Lovelace', email: 'ada@example.com', avatarUrl: null },
+};
+
 function mockBoardContext(canEdit: boolean) {
   vi.mocked(useBoardContext).mockReturnValue({
-    state: { columns: [{ id: COLUMN_ID, title: 'To do' }], members: [] },
+    state: { columns: [{ id: COLUMN_ID, title: 'To do' }], members: [MEMBER] },
     dispatch: vi.fn(),
     canEdit,
   } as unknown as ReturnType<typeof useBoardContext>);
@@ -50,6 +55,17 @@ function mockBoardContext(canEdit: boolean) {
 const MISSING_DESCRIPTION = /Missing `Description`/;
 
 let warn: MockInstance<typeof console.warn>;
+
+beforeAll(() => {
+  // Radix Select calls these; jsdom implements none of them.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.scrollIntoView ??= () => {};
+});
 
 beforeEach(() => {
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -126,6 +142,16 @@ describe('TaskDetailDialog field names', () => {
       '10000',
     );
     expect(screen.getByRole('textbox', { name: 'Labels' })).toHaveAttribute('maxlength', '30');
+  });
+
+  it('names each assignee once, without reading out the avatar initials', async () => {
+    mockBoardContext(true);
+    const user = userEvent.setup();
+    render(<TaskDetailDialog task={TASK} onClose={() => {}} />);
+
+    await user.click(screen.getByRole('combobox', { name: 'Assignee' }));
+
+    expect(await screen.findByRole('option', { name: 'Ada Lovelace' })).toBeInTheDocument();
   });
 
   it('names the read-only fields for viewers', () => {

@@ -42,7 +42,7 @@ export function BoardsClient({ boards }: BoardsClientProps) {
         <BlurFade delay={0.1}>
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-24 text-center">
             <LayoutDashboard className="text-muted-foreground/50 mb-4 h-12 w-12" />
-            <h3 className="text-lg font-medium">No boards yet</h3>
+            <h2 className="text-lg font-medium">No boards yet</h2>
             <p className="text-muted-foreground mt-1 mb-6 text-sm">
               Create your first board to start organizing tasks with your team.
             </p>
@@ -117,7 +117,9 @@ export function BoardsClient({ boards }: BoardsClientProps) {
                               {member.profile.avatarUrl && (
                                 <AvatarImage src={member.profile.avatarUrl} alt={name} />
                               )}
-                              <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+                              <AvatarFallback className="text-foreground text-[10px]">
+                                {initials}
+                              </AvatarFallback>
                             </Avatar>
                           );
                         })}

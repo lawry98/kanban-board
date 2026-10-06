@@ -268,11 +268,12 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                     return (
                       <SelectItem key={member.userId} value={member.userId}>
                         <div className="flex items-center gap-2">
-                          <Avatar className="h-4 w-4">
+                          {/* The name follows; initials would read it twice. */}
+                          <Avatar className="h-4 w-4" aria-hidden="true">
                             {member.profile.avatarUrl && (
                               <AvatarImage src={member.profile.avatarUrl} alt={name} />
                             )}
-                            <AvatarFallback className="text-[8px]">
+                            <AvatarFallback className="text-foreground text-[8px]">
                               {name.slice(0, 2).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
@@ -316,7 +317,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                       type="button"
                       onClick={() => removeLabel(label)}
                       aria-label={`Remove label ${label}`}
-                      className="hover:bg-muted focus-visible:ring-ring rounded outline-none focus-visible:ring-2"
+                      className="hover:bg-muted focus-visible:ring-ring rounded p-1 outline-none focus-visible:ring-2"
                     >
                       <X className="h-3 w-3" />
                     </button>

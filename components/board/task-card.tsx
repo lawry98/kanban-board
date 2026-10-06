@@ -94,7 +94,7 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
               'transition-shadow hover:shadow-md',
               'focus-visible:ring-ring outline-none focus-visible:ring-2',
               canEdit ? 'cursor-pointer' : 'cursor-default',
-              snapshot.isDragging && 'ring-primary/20 rotate-1 shadow-lg ring-1',
+              snapshot.isDragging && 'ring-primary/20 shadow-lg ring-1 motion-safe:rotate-1',
             )}
           >
             {/* Priority badge */}
@@ -142,7 +142,9 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
                       {task.assignee.avatarUrl && (
                         <AvatarImage src={task.assignee.avatarUrl} alt={assigneeName ?? ''} />
                       )}
-                      <AvatarFallback className="text-[10px]">{assigneeInitials}</AvatarFallback>
+                      <AvatarFallback className="text-foreground text-[10px]">
+                        {assigneeInitials}
+                      </AvatarFallback>
                     </Avatar>
                     <span className="sr-only">Assigned to {assigneeName ?? 'a member'}</span>
                   </>

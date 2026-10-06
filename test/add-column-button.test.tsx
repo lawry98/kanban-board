@@ -103,6 +103,12 @@ describe('AddColumnButton', () => {
     await expectFocusBackOnAddColumn();
   });
 
+  it('names the column name input', async () => {
+    const user = renderButton();
+    // Not just its placeholder: that vanishes once typing starts.
+    expect(await openForm(user)).toHaveAttribute('aria-label', 'Column name');
+  });
+
   it('closes and returns focus to Add column on Escape', async () => {
     const user = renderButton();
     await user.type(await openForm(user), 'Review{Escape}');

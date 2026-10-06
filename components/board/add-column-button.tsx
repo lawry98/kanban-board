@@ -73,6 +73,7 @@ export function AddColumnButton() {
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Column name"
+          aria-label="Column name"
           autoFocus
           // Not `disabled`: that drops focus to <body>, and on a failure the user would
           // have to find their way back. The handler guards reentry.

@@ -48,6 +48,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   // must not save a second time (Enter) or save at all (Escape).
   const closingTitleEditRef = useRef(false);
   const actionsId = columnActionsId(column.id);
+  const headingId = `column-${column.id}-title`;
   // Where focus goes when the delete confirm closes: this column's menu button, or once the
   // column is deleted a neighbour's (null: no columns left, so leave focus be).
   const confirmReturnFocusIdRef = useRef<string | null>(actionsId);
@@ -180,16 +181,18 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               autoFocus
             />
           ) : (
-            <h3
+            <h2
+              id={headingId}
               className={`truncate text-sm font-medium ${canEdit ? 'hover:text-foreground/70 cursor-pointer' : ''}`}
               onClick={() => canEdit && openRename()}
             >
               {column.title}
-            </h3>
+            </h2>
           )}
 
           <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-xs">
             {column.tasks.length}
+            <span className="sr-only"> task{column.tasks.length === 1 ? '' : 's'}</span>
           </Badge>
         </div>
 
@@ -232,7 +235,8 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => setConfirmDeleteOpen(true)}
-                className="text-destructive focus:text-destructive"
+                // On the focused item's accent, light destructive is 4.37:1 and red-700 5.89:1.
+                className="dark:text-destructive dark:focus:text-destructive text-red-700 focus:text-red-700"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete column
@@ -249,6 +253,8 @@ export function Column({ column, onTaskClick }: ColumnProps) {
           <div
             ref={provided.innerRef}
             {...provided.droppableProps}
+            role="group"
+            aria-labelledby={headingId}
             className={cn(
               'bg-muted/30 flex min-h-[60px] flex-1 flex-col gap-2 rounded-lg border p-2 transition-colors',
               snapshot.isDraggingOver && 'bg-muted/60',

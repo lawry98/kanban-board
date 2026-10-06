@@ -23,7 +23,11 @@ export function Navbar({ user, breadcrumb }: NavbarProps) {
         {/* Left: Logo */}
         <div className="flex items-center gap-3">
           <Link href="/boards" className="flex items-center gap-2">
-            <div className="bg-foreground text-background flex h-6 w-6 items-center justify-center rounded text-xs font-bold">
+            {/* Decorative: the link's name is the wordmark, not "K KanbanFlow". */}
+            <div
+              aria-hidden="true"
+              className="bg-foreground text-background flex h-6 w-6 items-center justify-center rounded text-xs font-bold"
+            >
               K
             </div>
             <span className="text-sm font-semibold">KanbanFlow</span>
