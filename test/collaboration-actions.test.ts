@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import type * as RateLimitModule from '@/lib/rate-limit';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -21,9 +22,14 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
+vi.mock('@/lib/rate-limit', async (importOriginal) => ({
+  ...(await importOriginal<typeof RateLimitModule>()),
+  enforceRateLimit: vi.fn(async () => {}),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
+import { RateLimitError, enforceRateLimit } from '@/lib/rate-limit';
 import {
   acceptInvitation,
   createInvitation,
@@ -56,6 +62,7 @@ const db = prisma as unknown as {
   $transaction: Mock;
 };
 const mockedCreateClient = createClient as unknown as Mock;
+const mockedLimit = enforceRateLimit as unknown as Mock;
 
 const CONFIRMED_AT = '2026-01-01T00:00:00Z';
 
@@ -112,13 +119,22 @@ function makeProfile(id: string, email: string) {
   };
 }
 
+// toActionError logs every rejection (expected PublicErrors included); keep that out of the
+// test output. Tests that assert on logging read this same spy.
+let errorSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   signInAs();
   // Default: run a $transaction callback against the same mocked client as `tx`.
   db.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
   db.activityLog.create.mockResolvedValue({});
   db.analyticsEvent.createMany.mockResolvedValue({ count: 1 });
+});
+
+afterEach(() => {
+  errorSpy.mockRestore();
 });
 
 describe('acceptInvitation', () => {
@@ -145,7 +161,6 @@ describe('acceptInvitation', () => {
   });
 
   it('rejects a legacy null-expiry link created more than 7 days ago', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     db.invitation.findUnique.mockResolvedValue(
       makeInvitation({
         expiresAt: null,
@@ -157,7 +172,6 @@ describe('acceptInvitation', () => {
 
     expect(result).toEqual({ error: 'This invite link is no longer valid' });
     expect(db.boardMember.create).not.toHaveBeenCalled();
-    errorSpy.mockRestore();
   });
 
   it('is idempotent for an existing member — no duplicate membership created', async () => {
@@ -199,7 +213,6 @@ describe('acceptInvitation', () => {
     db.invitation.findUnique.mockResolvedValue(makeInvitation({ role: 'OWNER' }));
     db.boardMember.findFirst.mockResolvedValue(null);
     db.boardMember.create.mockResolvedValue({ id: 'member-new' });
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const result = await acceptInvitation('tok_abc');
 
@@ -213,7 +226,6 @@ describe('acceptInvitation', () => {
       expect.objectContaining({ invitationId: INVITATION_ID, role: 'OWNER' }),
     );
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('tok_abc');
-    errorSpy.mockRestore();
   });
 
   it('still grants EDITOR from an EDITOR link', async () => {
@@ -312,15 +324,6 @@ describe('acceptInvitation', () => {
 });
 
 describe('acceptInvitation — email-bound invites', () => {
-  // Rejections log through toActionError; keep that expected noise out of the test output.
-  let errorSpy: ReturnType<typeof vi.spyOn>;
-  beforeEach(() => {
-    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-  afterEach(() => {
-    errorSpy.mockRestore();
-  });
-
   const MISMATCH =
     'This invite was sent to a different email address. Sign in with that account to join.';
 
@@ -623,5 +626,97 @@ describe('leaveBoard', () => {
     expect(db.activityLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'MEMBER_REMOVED' }) }),
     );
+  });
+});
+
+describe('rate limiting', () => {
+  const BLOCKED = 'Too many requests, try again in 10 min';
+
+  it('createInvitation spends the invitationCreate bucket and stops when blocked', async () => {
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+    db.invitation.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: INVITATION_ID, ...data }),
+    );
+
+    await createInvitation(BOARD_A, { role: 'EDITOR' });
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'invitationCreate');
+
+    db.invitation.create.mockClear();
+    mockedLimit.mockRejectedValueOnce(new RateLimitError(600));
+    const result = await createInvitation(BOARD_A, { role: 'EDITOR' });
+
+    expect(result).toEqual({ error: BLOCKED });
+    expect(db.invitation.create).not.toHaveBeenCalled();
+  });
+
+  it('acceptInvitation spends the invitationAccept bucket before looking the token up', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue({ id: 'member-existing' });
+
+    await acceptInvitation('tok_abc');
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'invitationAccept');
+
+    db.invitation.findUnique.mockClear();
+    mockedLimit.mockRejectedValueOnce(new RateLimitError(600));
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: BLOCKED });
+    expect(db.invitation.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('acceptInvitation does not touch the limiter when signed out', async () => {
+    mockedCreateClient.mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }) },
+    });
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: 'Unauthorized' });
+    expect(mockedLimit).not.toHaveBeenCalled();
+  });
+
+  it('never hands the invite token to the limiter', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue({ id: 'member-existing' });
+
+    await acceptInvitation('tok_abc');
+
+    expect(mockedLimit).toHaveBeenCalled();
+    expect(JSON.stringify(mockedLimit.mock.calls)).not.toContain('tok_abc');
+  });
+
+  it('revokeInvitation spends the shared mutation bucket', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+    db.invitation.update.mockResolvedValue({});
+
+    await revokeInvitation(INVITATION_ID);
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'mutation');
+  });
+
+  it('addBoardMember spends the memberAdd bucket', async () => {
+    db.boardMember.findFirst.mockResolvedValueOnce(makeMember({ role: 'OWNER' }));
+    db.profile.findUnique.mockResolvedValue(null);
+
+    await addBoardMember(BOARD_A, { email: 'target@x.io', role: 'VIEWER' });
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'memberAdd');
+  });
+
+  it('removeBoardMember spends the shared mutation bucket', async () => {
+    db.boardMember.findFirst.mockResolvedValueOnce(makeMember({ role: 'OWNER' }));
+
+    await removeBoardMember(BOARD_A, TARGET_ID);
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'mutation');
+  });
+
+  it('changeMemberRole spends the shared mutation bucket', async () => {
+    db.boardMember.findFirst.mockResolvedValueOnce(makeMember({ role: 'OWNER' }));
+
+    await changeMemberRole(BOARD_A, TARGET_ID, { role: 'VIEWER' });
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'mutation');
   });
 });

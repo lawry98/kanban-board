@@ -81,6 +81,11 @@ export async function enforceRateLimit(userId: string, bucket: RateLimitBucket):
   }
 
   const hits = Number(row?.hits);
-  if (!Number.isFinite(hits) || hits <= limit) return;
+  if (!Number.isFinite(hits)) {
+    // The query "succeeded" but gave no usable counter: same outage as a thrown error.
+    console.error(`rateLimit(${bucket}) failed open (non-fatal): unexpected counter row`, row);
+    return;
+  }
+  if (hits <= limit) return;
   throw new RateLimitError(Math.max(1, Number(row?.retry_after) || windowSeconds));
 }

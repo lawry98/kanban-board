@@ -1,10 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import type * as RateLimitModule from '@/lib/rate-limit';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: { analyticsEvent: { createMany: vi.fn() } },
 }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
+vi.mock('@/lib/rate-limit', async (importOriginal) => ({
+  ...(await importOriginal<typeof RateLimitModule>()),
+  enforceRateLimit: vi.fn(async () => {}),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { dailyActiveKey, signedUpKey } from '@/lib/analytics/events';

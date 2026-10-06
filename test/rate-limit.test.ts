@@ -64,10 +64,33 @@ describe('enforceRateLimit', () => {
       throw new Error('boom');
     });
     await expect(enforceRateLimit(USER, 'mutation')).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+
+    // A query that succeeds but yields no usable counter is also an outage: log it.
+    errorSpy.mockClear();
     queryRaw.mockResolvedValueOnce([]);
     await expect(enforceRateLimit(USER, 'mutation')).resolves.toBeUndefined();
-    queryRaw.mockResolvedValueOnce([{ hits: 'nope', retry_after: null }]);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenLastCalledWith(
+      expect.stringContaining('rateLimit(mutation) failed open'),
+      undefined,
+    );
+
+    errorSpy.mockClear();
+    const garbled = { hits: 'nope', retry_after: null };
+    queryRaw.mockResolvedValueOnce([garbled]);
     await expect(enforceRateLimit(USER, 'mutation')).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenLastCalledWith(
+      expect.stringContaining('unexpected counter row'),
+      garbled,
+    );
+  });
+
+  it('stays silent for an in-limit call', async () => {
+    queryRaw.mockResolvedValue([{ hits: RATE_LIMITS.mutation.limit, retry_after: 30 }]);
+    await expect(enforceRateLimit(USER, 'mutation')).resolves.toBeUndefined();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it('coerces bigint counters', async () => {

@@ -20,6 +20,7 @@ import {
   invitationExpiry,
   isInvitationActive,
 } from '@/lib/invitations';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { uuidSchema } from '@/lib/validations/board';
 import { createInvitationSchema, invitableRoleSchema } from '@/lib/validations/invitation';
 import { Prisma } from '@prisma/client';
@@ -41,6 +42,7 @@ export async function createInvitation(
   try {
     const id = uuidSchema.parse(boardId);
     const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'invitationCreate');
     const { role, email } = createInvitationSchema.parse(input);
 
     const invitation = await prisma.invitation.create({
@@ -99,7 +101,8 @@ export async function revokeInvitation(
     const invitation = await prisma.invitation.findUnique({ where: { id } });
     if (!invitation) throw new PublicError('Invite link not found');
 
-    await requireBoardAccess(invitation.boardId, OWNER_ROLES);
+    const { user } = await requireBoardAccess(invitation.boardId, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     await prisma.invitation.update({ where: { id }, data: { revokedAt: new Date() } });
 
@@ -123,6 +126,8 @@ export async function acceptInvitation(token: unknown): Promise<ActionResult<{ b
     }
 
     const user = await requireAuth();
+    // Before the token lookup, so guessing tokens is throttled per user, not just per row.
+    await enforceRateLimit(user.id, 'invitationAccept');
 
     const invitation = await prisma.invitation.findUnique({ where: { token } });
     if (!invitation || !isInvitationActive(invitation)) {
