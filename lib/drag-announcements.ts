@@ -6,7 +6,8 @@ import type { ColumnWithTasks } from '@/types';
 export const DRAG_HANDLE_INSTRUCTIONS =
   'Press Enter to open the task. Press space bar to pick it up, use the arrow keys to move it ' +
   'within or between columns, then space bar to drop it or Escape to cancel. Some screen ' +
-  'readers may require you to be in focus mode or to use your pass through key.';
+  'readers may require you to be in focus mode or to use your pass through key. You can ' +
+  'also move a task by opening it with Enter and changing its Column.';
 
 // dnd's default messages read out droppable ids — column UUIDs here.
 

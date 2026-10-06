@@ -166,4 +166,11 @@ describe('drag announcements', () => {
     expect(DRAG_HANDLE_INSTRUCTIONS).toMatch(/Enter to open/);
     expect(DRAG_HANDLE_INSTRUCTIONS).toMatch(/space bar/i);
   });
+
+  // A keyboard drag can't scroll the board sideways to an off-screen column; the dialog can.
+  it('points keyboard users to the Column field as another way to move a task', () => {
+    expect(DRAG_HANDLE_INSTRUCTIONS).toMatch(
+      /also move a task by opening it with Enter and changing its Column\.$/,
+    );
+  });
 });
