@@ -194,7 +194,8 @@ export function MembersDialog({ open, onOpenChange }: MembersDialogProps) {
               <AlertDialogHeader>
                 <AlertDialogTitle>Leave this board?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  You will lose access to {board.title}. You&apos;ll need a new invite to rejoin.
+                  You will lose access to {state.meta.title}. You&apos;ll need a new invite to
+                  rejoin.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

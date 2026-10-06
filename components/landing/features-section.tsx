@@ -7,20 +7,21 @@ const FEATURES = [
     icon: Zap,
     title: 'Real-time sync',
     description: 'See changes instantly as teammates work. No page refreshes.',
-    detail: 'Live updates via Supabase Realtime WebSockets — dispatched directly into board state.',
+    detail:
+      'Supabase Realtime signals each change, and the board re-fetches its latest state from the server.',
   },
   {
     icon: MousePointer2,
     title: 'Drag & drop',
     description: 'Move tasks across columns and reorder cards effortlessly.',
     detail:
-      'Column and card reordering with optimistic UI — actions feel instant, server catches up silently.',
+      'Card moves are optimistic: they land at once and snap back with an error if the save fails.',
   },
   {
     icon: Users,
     title: 'Team collaboration',
     description: 'Invite your team, assign tasks, and track progress together.',
-    detail: 'Assignees, labels, due dates, and full activity history — everything in one place.',
+    detail: 'Assignees, labels, due dates, and a feed of the 50 most recent changes.',
   },
 ] as const;
 

@@ -3,6 +3,9 @@ import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 
 export function LandingFooter() {
+  // Request time, not build time: the landing page reads auth cookies, so it renders per request.
+  const year = new Date().getFullYear();
+
   return (
     <footer className="relative z-10 border-t px-4 py-8 sm:px-6">
       <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
@@ -42,7 +45,7 @@ export function LandingFooter() {
         </nav>
       </div>
       <p className="text-muted-foreground mt-6 text-center text-xs">
-        © 2025 KanbanFlow · Built with Next.js, Supabase, and shadcn/ui
+        © {year} KanbanFlow · Built with Next.js, Supabase, and shadcn/ui
       </p>
     </footer>
   );
