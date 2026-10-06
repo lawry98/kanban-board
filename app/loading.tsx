@@ -6,37 +6,37 @@ export default function LandingLoading() {
       {/* Nav */}
       <header className="bg-background/80 sticky top-0 z-50 flex h-14 items-center justify-between border-b px-4 backdrop-blur-md sm:px-6">
         <div className="flex items-center gap-6">
-          <Skeleton className="h-6 w-28 rounded" />
+          <Skeleton className="h-6 w-28 rounded motion-reduce:animate-none" />
           <div className="hidden items-center gap-5 sm:flex">
-            <Skeleton className="h-4 w-16" />
-            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-16 motion-reduce:animate-none" />
+            <Skeleton className="h-4 w-20 motion-reduce:animate-none" />
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Skeleton className="h-8 w-16 rounded-md" />
-          <Skeleton className="h-8 w-24 rounded-md" />
+          <Skeleton className="h-8 w-16 rounded-md motion-reduce:animate-none" />
+          <Skeleton className="h-8 w-24 rounded-md motion-reduce:animate-none" />
         </div>
       </header>
 
       <main className="relative z-10 flex-1">
         {/* Hero */}
         <section className="flex flex-col items-center px-4 pt-24 pb-14">
-          <Skeleton className="mb-4 h-7 w-64 rounded-full" />
-          <Skeleton className="h-16 w-full max-w-xl rounded-lg sm:h-20" />
-          <Skeleton className="mt-3 h-14 w-full max-w-xl rounded-lg" />
-          <Skeleton className="mx-auto mt-6 h-14 w-full max-w-lg rounded-lg" />
+          <Skeleton className="mb-4 h-7 w-64 rounded-full motion-reduce:animate-none" />
+          <Skeleton className="h-16 w-full max-w-xl rounded-lg motion-reduce:animate-none sm:h-20" />
+          <Skeleton className="mt-3 h-14 w-full max-w-xl rounded-lg motion-reduce:animate-none" />
+          <Skeleton className="mx-auto mt-6 h-14 w-full max-w-lg rounded-lg motion-reduce:animate-none" />
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
-            <Skeleton className="h-11 w-48 rounded-md" />
-            <Skeleton className="h-11 w-36 rounded-md" />
+            <Skeleton className="h-11 w-48 rounded-md motion-reduce:animate-none" />
+            <Skeleton className="h-11 w-36 rounded-md motion-reduce:animate-none" />
           </div>
-          <Skeleton className="mt-3 h-4 w-44" />
+          <Skeleton className="mt-3 h-4 w-44 motion-reduce:animate-none" />
         </section>
 
         {/* Preview board */}
         <section className="px-4 pb-20">
           <div className="mx-auto max-w-5xl">
-            <Skeleton className="mx-auto mb-5 h-4 w-72" />
-            <Skeleton className="h-[360px] w-full rounded-xl" />
+            <Skeleton className="mx-auto mb-5 h-4 w-72 motion-reduce:animate-none" />
+            <Skeleton className="h-[360px] w-full rounded-xl motion-reduce:animate-none" />
           </div>
         </section>
       </main>

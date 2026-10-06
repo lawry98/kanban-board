@@ -143,10 +143,10 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
             <div className="space-y-4 pr-4">
               {LOG_PLACEHOLDERS.map((key) => (
                 <div key={key} className="flex gap-3">
-                  <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
+                  <Skeleton className="h-7 w-7 shrink-0 rounded-full motion-reduce:animate-none" />
                   <div className="flex-1 space-y-1">
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-2/3" />
+                    <Skeleton className="h-3 w-full motion-reduce:animate-none" />
+                    <Skeleton className="h-3 w-2/3 motion-reduce:animate-none" />
                   </div>
                 </div>
               ))}
