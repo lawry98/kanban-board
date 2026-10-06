@@ -6,6 +6,7 @@ import { Draggable } from '@hello-pangea/dnd';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { TaskDueDate } from '@/components/board/task-due-date';
+import { taskCardId } from '@/lib/dom-ids';
 import { cn } from '@/lib/utils';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@/lib/constants';
 import { useBoardContext } from '@/contexts/board-context';
@@ -58,6 +59,7 @@ export const TaskCard = memo(function TaskCard({ task, index, onClick }: TaskCar
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...dragHandle}
+            id={taskCardId(task.id)}
             // dnd only gives a draggable card its handle props (role, tabIndex, its usage
             // instructions); a viewer's card must still be reachable and openable.
             role="button"

@@ -3,7 +3,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DragDropContext } from '@hello-pangea/dnd';
 
-import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
+import type * as BoardContextModule from '@/contexts/board-context';
+import type { BoardWithDetails, ColumnWithTasks, TaskWithAssignee } from '@/types';
 
 const { updateColumn, deleteColumn, createTask, toastError, toastSuccess } = vi.hoisted(() => ({
   updateColumn: vi.fn(),
@@ -56,6 +57,7 @@ function makeTask(id: string, title: string): TaskWithAssignee {
 
 function mockContext(canEdit = true) {
   vi.mocked(useBoardContext).mockReturnValue({
+    state: { columns: [COLUMN], members: [] },
     dispatch: vi.fn(),
     canEdit,
   } as unknown as ReturnType<typeof useBoardContext>);
@@ -279,5 +281,86 @@ describe('Column scroll structure', () => {
     mockContext(false);
     renderColumn({ ...COLUMN, tasks: [makeTask('t1', 'Write launch post')] });
     expect(screen.queryByRole('button', { name: 'Add task' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Column delete confirm returns focus', () => {
+  const DOING: ColumnWithTasks = { ...COLUMN, id: 'col-2', title: 'Doing', position: 2000 };
+
+  /** Columns on the real board provider, so a confirmed delete really unmounts the column. */
+  async function renderBoard() {
+    const actual = await vi.importActual<typeof BoardContextModule>('@/contexts/board-context');
+    vi.mocked(useBoardContext).mockImplementation(actual.useBoardContext);
+    function Columns() {
+      const { state } = actual.useBoardContext();
+      return state.columns.map((column) => (
+        <Column key={column.id} column={column} onTaskClick={() => {}} />
+      ));
+    }
+    const board = {
+      id: 'board-1',
+      columns: [COLUMN, DOING],
+      members: [],
+    } as unknown as BoardWithDetails;
+    render(
+      <actual.BoardProvider board={board} currentUserId="user-1" userRole="OWNER">
+        <DragDropContext onDragEnd={() => {}}>
+          <Columns />
+        </DragDropContext>
+      </actual.BoardProvider>,
+    );
+  }
+
+  async function openDeleteConfirm(user: ReturnType<typeof userEvent.setup>, columnTitle: string) {
+    await user.click(screen.getByRole('button', { name: `${columnTitle} column actions` }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete column' }));
+    return screen.findByRole('alertdialog', { name: 'Delete this column?' });
+  }
+
+  beforeEach(() => {
+    deleteColumn.mockResolvedValue({ data: true });
+  });
+
+  it("goes back to the column's menu button on Cancel", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+    const trigger = screen.getByRole('button', { name: 'To do column actions' });
+
+    await user.click(trigger);
+    // The trigger carries our id, so the menu must still be named by it.
+    expect(await screen.findByRole('menu', { name: 'To do column actions' })).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Delete column' }));
+    await screen.findByRole('alertdialog', { name: 'Delete this column?' });
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(deleteColumn).not.toHaveBeenCalled();
+  });
+
+  it("moves to the next column's menu button after a delete", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    await openDeleteConfirm(user, 'To do');
+    await user.click(screen.getByRole('button', { name: 'Delete column' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Doing column actions' })).toHaveFocus(),
+    );
+    expect(screen.queryByRole('heading', { name: 'To do' })).not.toBeInTheDocument();
+    expect(deleteColumn).toHaveBeenCalledWith('col-1');
+  });
+
+  it("moves to the previous column's menu button after deleting the last column", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    await openDeleteConfirm(user, 'Doing');
+    await user.click(screen.getByRole('button', { name: 'Delete column' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'To do column actions' })).toHaveFocus(),
+    );
+    expect(screen.queryByRole('heading', { name: 'Doing' })).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Droppable } from '@hello-pangea/dnd';
 import { MoreHorizontal, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ import { TaskCard } from '@/components/board/task-card';
 import { updateColumn, deleteColumn } from '@/app/actions/column-actions';
 import { createTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import { columnActionsId, focusById } from '@/lib/dom-ids';
 import { cn } from '@/lib/utils';
 import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
 
@@ -29,7 +30,7 @@ interface ColumnProps {
 }
 
 export function Column({ column, onTaskClick }: ColumnProps) {
-  const { dispatch, canEdit } = useBoardContext();
+  const { state, dispatch, canEdit } = useBoardContext();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(column.title);
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -42,6 +43,15 @@ export function Column({ column, onTaskClick }: ColumnProps) {
   // True while the editor is closing. Moving focus off the input fires its blur, which
   // must not save a second time (Enter) or save at all (Escape).
   const closingTitleEditRef = useRef(false);
+  const actionsId = columnActionsId(column.id);
+  // Where focus goes when the delete confirm closes: this column's menu button, or once the
+  // column is deleted a neighbour's (null: no columns left, so leave focus be).
+  const confirmReturnFocusIdRef = useRef<string | null>(actionsId);
+  // The committed board, for a delete to read after its await (this render's may be stale).
+  const columnsRef = useRef(state.columns);
+  useEffect(() => {
+    columnsRef.current = state.columns;
+  }, [state.columns]);
 
   async function handleRenameColumn({ restoreFocus = false } = {}) {
     if (closingTitleEditRef.current) return;
@@ -86,6 +96,11 @@ export function Column({ column, onTaskClick }: ColumnProps) {
       toast.error(result.error);
       return;
     }
+    // This column's menu button is about to go: the next column's takes focus, else the previous.
+    const columns = columnsRef.current;
+    const index = columns.findIndex((col) => col.id === column.id);
+    const neighbour = index === -1 ? undefined : (columns[index + 1] ?? columns[index - 1]);
+    confirmReturnFocusIdRef.current = neighbour ? columnActionsId(neighbour.id) : null;
     dispatch({ type: 'DELETE_COLUMN', payload: { columnId: column.id } });
     toast.success('Column deleted');
   }
@@ -153,6 +168,7 @@ export function Column({ column, onTaskClick }: ColumnProps) {
             <DropdownMenuTrigger asChild>
               <Button
                 ref={menuTriggerRef}
+                id={actionsId}
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 shrink-0"
@@ -163,6 +179,8 @@ export function Column({ column, onTaskClick }: ColumnProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
+              // Our id replaces the trigger id Radix names the menu by, so name it ourselves.
+              aria-labelledby={actionsId}
               onCloseAutoFocus={(event) => {
                 if (!renameRequestedRef.current) return;
                 renameRequestedRef.current = false;
@@ -293,6 +311,10 @@ export function Column({ column, onTaskClick }: ColumnProps) {
         confirmLabel="Delete column"
         pendingLabel="Deleting…"
         onConfirm={handleDeleteColumn}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (confirmReturnFocusIdRef.current) focusById(confirmReturnFocusIdRef.current);
+        }}
       />
     </div>
   );

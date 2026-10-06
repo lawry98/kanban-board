@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -31,6 +31,7 @@ import { updateTask, deleteTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
 import { PRIORITY_LABELS } from '@/lib/constants';
 import { formatCalendarDate } from '@/lib/dates';
+import { columnActionsId, focusById, taskCardId } from '@/lib/dom-ids';
 import type { UpdateTaskInput } from '@/lib/validations/task';
 import type { TaskWithAssignee } from '@/types';
 
@@ -57,6 +58,15 @@ function TaskForm({ task, onClose }: TaskFormProps) {
   const [labels, setLabels] = useState<string[]>(task.labels);
   const [isSaving, setIsSaving] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  // Where focus goes when this dialog closes: the card, or a neighbour once it's deleted.
+  const returnFocusIdRef = useRef(taskCardId(task.id));
+  // The committed board, for a delete to read after its await: by then this render's
+  // `state` may be stale (a realtime sync can land mid-request).
+  const columnsRef = useRef(state.columns);
+  useEffect(() => {
+    columnsRef.current = state.columns;
+  }, [state.columns]);
 
   async function handleSave() {
     if (!title.trim()) return;
@@ -104,6 +114,15 @@ function TaskForm({ task, onClose }: TaskFormProps) {
       return;
     }
 
+    // The card is about to go: the next card in its column takes focus, else the previous,
+    // else the column's menu button.
+    const siblings = columnsRef.current.find((col) => col.id === task.columnId)?.tasks ?? [];
+    const index = siblings.findIndex((t) => t.id === task.id);
+    const neighbour = index === -1 ? undefined : (siblings[index + 1] ?? siblings[index - 1]);
+    returnFocusIdRef.current = neighbour
+      ? taskCardId(neighbour.id)
+      : columnActionsId(task.columnId);
+
     dispatch({ type: 'DELETE_TASK', payload: { taskId: task.id, columnId: task.columnId } });
     toast.success('Task deleted');
     onClose();
@@ -125,7 +144,13 @@ function TaskForm({ task, onClose }: TaskFormProps) {
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent
+        className="max-h-[90vh] max-w-lg overflow-y-auto"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusById(returnFocusIdRef.current);
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="sr-only">Task details</DialogTitle>
           <DialogDescription className="sr-only">
@@ -297,7 +322,12 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           {/* Actions */}
           {canEdit && (
             <div className="flex justify-between pt-2">
-              <Button variant="destructive" size="sm" onClick={() => setConfirmDeleteOpen(true)}>
+              <Button
+                ref={deleteButtonRef}
+                variant="destructive"
+                size="sm"
+                onClick={() => setConfirmDeleteOpen(true)}
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </Button>
@@ -314,6 +344,12 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                 confirmLabel="Delete task"
                 pendingLabel="Deleting…"
                 onConfirm={handleDelete}
+                onCloseAutoFocus={(event) => {
+                  // Cancelled: back to Delete. Once the task is deleted this dialog is gone
+                  // too (the ref is null) and its own handler places focus.
+                  event.preventDefault();
+                  deleteButtonRef.current?.focus();
+                }}
               />
               <div className="ml-auto flex gap-2">
                 <Button variant="outline" size="sm" onClick={onClose}>
