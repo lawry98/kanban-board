@@ -57,7 +57,12 @@ function TaskForm({ task, onClose }: TaskFormProps) {
   const [labelInput, setLabelInput] = useState('');
   const [labels, setLabels] = useState<string[]>(task.labels);
   const [isSaving, setIsSaving] = useState(false);
+  // Shown only after a Save with an empty title; cleared as soon as it has text again.
+  const [titleError, setTitleError] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+  const removeLabelButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   // Where focus goes when this dialog closes: the card, or a neighbour once it's deleted.
   const returnFocusIdRef = useRef(taskCardId(task.id));
@@ -69,7 +74,11 @@ function TaskForm({ task, onClose }: TaskFormProps) {
   }, [state.columns]);
 
   async function handleSave() {
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      setTitleError(true);
+      titleInputRef.current?.focus();
+      return;
+    }
 
     // Only what the user changed: re-sending untouched fields would overwrite a
     // collaborator's concurrent edit with this dialog's stale copy.
@@ -91,41 +100,49 @@ function TaskForm({ task, onClose }: TaskFormProps) {
     }
 
     setIsSaving(true);
-    const result = await updateTask(task.id, changes);
-
-    setIsSaving(false);
-
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await updateTask(task.id, changes);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      if (result.data) {
+        dispatch({ type: 'UPDATE_TASK', payload: result.data });
+      }
+      toast.success('Task updated');
+      onClose();
+    } catch (err) {
+      console.error('updateTask failed:', err);
+      toast.error('Failed to update task');
+    } finally {
+      setIsSaving(false);
     }
-
-    if (result.data) {
-      dispatch({ type: 'UPDATE_TASK', payload: result.data });
-    }
-    toast.success('Task updated');
-    onClose();
   }
 
   async function handleDelete() {
-    const result = await deleteTask(task.id);
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await deleteTask(task.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+
+      // The card is about to go: the next card in its column takes focus, else the previous,
+      // else the column's menu button.
+      const siblings = columnsRef.current.find((col) => col.id === task.columnId)?.tasks ?? [];
+      const index = siblings.findIndex((t) => t.id === task.id);
+      const neighbour = index === -1 ? undefined : (siblings[index + 1] ?? siblings[index - 1]);
+      returnFocusIdRef.current = neighbour
+        ? taskCardId(neighbour.id)
+        : columnActionsId(task.columnId);
+
+      dispatch({ type: 'DELETE_TASK', payload: { taskId: task.id, columnId: task.columnId } });
+      toast.success('Task deleted');
+      onClose();
+    } catch (err) {
+      console.error('deleteTask failed:', err);
+      toast.error('Failed to delete task');
     }
-
-    // The card is about to go: the next card in its column takes focus, else the previous,
-    // else the column's menu button.
-    const siblings = columnsRef.current.find((col) => col.id === task.columnId)?.tasks ?? [];
-    const index = siblings.findIndex((t) => t.id === task.id);
-    const neighbour = index === -1 ? undefined : (siblings[index + 1] ?? siblings[index - 1]);
-    returnFocusIdRef.current = neighbour
-      ? taskCardId(neighbour.id)
-      : columnActionsId(task.columnId);
-
-    dispatch({ type: 'DELETE_TASK', payload: { taskId: task.id, columnId: task.columnId } });
-    toast.success('Task deleted');
-    onClose();
   }
 
   function addLabel() {
@@ -137,6 +154,10 @@ function TaskForm({ task, onClose }: TaskFormProps) {
   }
 
   function removeLabel(label: string) {
+    // Its button is about to unmount: focus the next one, else the previous, else the input.
+    const index = labels.indexOf(label);
+    const neighbour = labels[index + 1] ?? labels[index - 1];
+    (neighbour ? removeLabelButtonsRef.current.get(neighbour) : labelInputRef.current)?.focus();
     setLabels(labels.filter((l) => l !== label));
   }
 
@@ -163,12 +184,25 @@ function TaskForm({ task, onClose }: TaskFormProps) {
           <div className="space-y-1">
             <Label htmlFor="task-title">Title</Label>
             <Input
+              ref={titleInputRef}
               id="task-title"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                if (e.target.value.trim()) setTitleError(false);
+              }}
               disabled={!canEdit}
+              required
+              maxLength={255}
+              aria-invalid={titleError || undefined}
+              aria-describedby={titleError ? 'task-title-error' : undefined}
               className="text-base font-medium"
             />
+            {titleError && (
+              <p id="task-title-error" className="text-destructive text-sm">
+                Title is required
+              </p>
+            )}
           </div>
 
           {/* Description */}
@@ -180,6 +214,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
               onChange={(e) => setDescription(e.target.value)}
               disabled={!canEdit}
               rows={3}
+              maxLength={10000}
               placeholder="Add a description…"
             />
           </div>
@@ -272,6 +307,12 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                   {label}
                   {canEdit && (
                     <button
+                      ref={(el) => {
+                        if (el) removeLabelButtonsRef.current.set(label, el);
+                        return () => {
+                          removeLabelButtonsRef.current.delete(label);
+                        };
+                      }}
                       type="button"
                       onClick={() => removeLabel(label)}
                       aria-label={`Remove label ${label}`}
@@ -286,6 +327,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
             {canEdit && (
               <div className="flex gap-2">
                 <Input
+                  ref={labelInputRef}
                   id="task-label-input"
                   value={labelInput}
                   onChange={(e) => setLabelInput(e.target.value)}
@@ -296,6 +338,7 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                     }
                   }}
                   placeholder="Add a label…"
+                  maxLength={30}
                   className="h-8"
                 />
                 <Button
@@ -355,7 +398,8 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                 <Button variant="outline" size="sm" onClick={onClose}>
                   Cancel
                 </Button>
-                <Button size="sm" onClick={handleSave} disabled={isSaving || !title.trim()}>
+                {/* Enabled with an empty title: pressing it says why it can't save. */}
+                <Button size="sm" onClick={handleSave} disabled={isSaving}>
                   {isSaving ? 'Saving…' : 'Save changes'}
                 </Button>
               </div>

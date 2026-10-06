@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -109,6 +109,10 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   deleteTask.mockResolvedValue({ data: true });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 // Radix hands focus back on a `setTimeout(0)` after the dialog unmounts, hence `waitFor`.
@@ -230,6 +234,64 @@ describe('TaskDetailDialog returns focus', () => {
     await screen.findByRole('alertdialog', { name: 'Delete this task?' });
     await user.keyboard('{Escape}');
 
+    await waitFor(() => expect(deleteButton).toHaveFocus());
+    expect(screen.getByRole('dialog', { name: 'Task details' })).toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailDialog label removal', () => {
+  it('moves focus to the next remove button, else the previous, else the label input', async () => {
+    const labelled = { ...TASK, labels: ['launch', 'copy', 'blog'] };
+    mockBoard([labelled]);
+    const user = userEvent.setup();
+    render(<TaskDetailDialog task={labelled} onClose={() => {}} />);
+
+    async function remove(label: string) {
+      screen.getByRole('button', { name: `Remove label ${label}` }).focus();
+      await user.keyboard('{Enter}');
+      expect(
+        screen.queryByRole('button', { name: `Remove label ${label}` }),
+      ).not.toBeInTheDocument();
+    }
+
+    await remove('copy');
+    expect(screen.getByRole('button', { name: 'Remove label blog' })).toHaveFocus();
+    await remove('blog');
+    expect(screen.getByRole('button', { name: 'Remove label launch' })).toHaveFocus();
+    await remove('launch');
+    expect(screen.getByRole('textbox', { name: 'Labels' })).toHaveFocus();
+  });
+});
+
+describe('TaskDetailDialog when a request rejects', () => {
+  it('toasts and stays open with Save usable when the save rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    updateTask.mockRejectedValueOnce(new Error('offline'));
+    const { user } = renderBoard();
+    await openWithKeyboard(user, TASK.title);
+
+    await user.type(screen.getByRole('textbox', { name: 'Title' }), '!');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Failed to update task'));
+    expect(consoleError).toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Task details' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
+  it('toasts and keeps the task when the delete rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    deleteTask.mockRejectedValueOnce(new Error('offline'));
+    const { user } = renderBoard();
+    await openWithKeyboard(user, TASK.title);
+    const deleteButton = screen.getByRole('button', { name: 'Delete' });
+
+    await user.click(deleteButton);
+    await user.click(await screen.findByRole('button', { name: 'Delete task' }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Failed to delete task'));
+    expect(consoleError).toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
     await waitFor(() => expect(deleteButton).toHaveFocus());
     expect(screen.getByRole('dialog', { name: 'Task details' })).toBeInTheDocument();
   });

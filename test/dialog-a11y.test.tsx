@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('@/app/actions/task-actions', () => ({
   updateTask: vi.fn(),
@@ -10,7 +11,7 @@ vi.mock('@/contexts/board-context', () => ({ useBoardContext: vi.fn() }));
 
 import { ActivityFeed } from '@/components/board/activity-feed';
 import { TaskDetailDialog } from '@/components/board/task-detail-dialog';
-import { getActivityLogs } from '@/app/actions/task-actions';
+import { getActivityLogs, updateTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
 import type { MockInstance } from 'vitest';
 import type { TaskWithAssignee } from '@/types';
@@ -102,6 +103,7 @@ describe('TaskDetailDialog field names', () => {
     render(<TaskDetailDialog task={{ ...TASK, labels: ['launch'] }} onClose={() => {}} />);
 
     expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Write launch post');
+    expect(screen.getByRole('textbox', { name: 'Title' })).toBeRequired();
     expect(screen.getByRole('textbox', { name: 'Description' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Priority' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Column' })).toBeInTheDocument();
@@ -112,6 +114,18 @@ describe('TaskDetailDialog field names', () => {
       'type',
       'button',
     );
+  });
+
+  it('caps each text field at its schema limit', () => {
+    mockBoardContext(true);
+    render(<TaskDetailDialog task={TASK} onClose={() => {}} />);
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveAttribute('maxlength', '255');
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute(
+      'maxlength',
+      '10000',
+    );
+    expect(screen.getByRole('textbox', { name: 'Labels' })).toHaveAttribute('maxlength', '30');
   });
 
   it('names the read-only fields for viewers', () => {
@@ -125,5 +139,31 @@ describe('TaskDetailDialog field names', () => {
     expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeDisabled();
     expect(screen.getByLabelText('Due date')).toBeDisabled();
     expect(screen.queryByRole('button', { name: /Remove label/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailDialog empty title', () => {
+  it('flags it on Save, focuses it, and clears the message once it has text', async () => {
+    mockBoardContext(true);
+    const user = userEvent.setup();
+    render(<TaskDetailDialog task={TASK} onClose={vi.fn()} />);
+    const title = screen.getByRole('textbox', { name: 'Title' });
+    const save = screen.getByRole('button', { name: 'Save changes' });
+
+    await user.clear(title);
+    // Enabled on purpose: a disabled Save gives no reason, and isn't reachable by Tab.
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    expect(updateTask).not.toHaveBeenCalled();
+    expect(title).toHaveAttribute('aria-invalid', 'true');
+    expect(title).toHaveAccessibleDescription('Title is required');
+    expect(title).toHaveFocus();
+
+    await user.type(title, 'W');
+
+    expect(title).not.toHaveAttribute('aria-invalid');
+    expect(title).not.toHaveAccessibleDescription();
+    expect(screen.queryByText('Title is required')).not.toBeInTheDocument();
   });
 });
