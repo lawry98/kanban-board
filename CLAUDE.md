@@ -53,12 +53,12 @@ app/                              # Next.js App Router
 components/
 ├── ui/                           # shadcn/ui + Magic UI primitives (generated — do not edit)
 ├── board/                        # Board feature: column, task-card, task-due-date, task-detail-dialog,
-│                                 #   board-header, activity-feed, add-column-button, create-board-dialog
+│                                 #   board-header, connection-indicator, activity-feed, add-column-button, create-board-dialog
 ├── landing/                      # Marketing sections
 └── layout/                       # navbar, user-menu
 contexts/board-context.tsx        # Board state: reducer + provider (exports `boardReducer`)
 hooks/
-├── use-realtime.ts               # Supabase Realtime subscription + resync
+├── use-realtime.ts               # Supabase Realtime subscription + resync; returns `RealtimeStatus`
 ├── use-today.ts                  # Viewer's local calendar day (null during SSR), rolls over at midnight
 └── use-optimistic-update.ts      # Optimistic-update helper (exported; not yet wired in — see Known Gaps)
 lib/
@@ -145,7 +145,7 @@ CI (`.github/workflows/ci.yml`) runs `prisma generate` → typecheck → `lint -
 ### State Management
 
 - React Context + `useReducer` for board state. `boardReducer` is exported from `contexts/board-context.tsx` and unit-tested.
-- Actions are a discriminated union (`BoardAction` in `types/index.ts`). The reducer is pure; `SYNC_STATE` reconciles by id and preserves unchanged object references so memoized cards can bail out of re-render.
+- Actions are a discriminated union (`BoardAction` in `types/index.ts`). `BoardState` is `{ meta, columns, members }` — `meta` is the board's title and description; the header reads `meta.title` (the description is carried but not rendered). The `board` prop is only the server snapshot the reducer was seeded from, which Realtime does not keep current: use it for `id`. The reducer is pure; `SYNC_STATE` reconciles `meta`, columns and members by value/id and preserves unchanged object references so memoized cards can bail out of re-render.
 - Optimistic updates: dispatch immediately, call the action, revert via `SYNC_STATE` on error. **Snapshot state at call time**, not render time.
 
 ### Naming
@@ -236,9 +236,9 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 ### Realtime
 
-`hooks/use-realtime.ts` subscribes per board and, on any `postgres_changes` event, debounces (300 ms) and re-fetches the whole board via `getBoardData`, dispatching `SYNC_STATE`. Syncs are sequence-numbered (a stale in-flight fetch cannot clobber newer state) and re-run on `SUBSCRIBED` (reconnect catch-up), tab refocus, and `online`. Deletes require `REPLICA IDENTITY FULL` (set in the migration) or their `board_id` filter never matches.
+`hooks/use-realtime.ts` subscribes per board — `tasks`, `columns` and `board_members` filtered `board_id=eq.<boardId>`, `boards` filtered `id=eq.<boardId>` — and, on any `postgres_changes` event, debounces (300 ms) and re-fetches the whole board via `getBoardData`, dispatching `SYNC_STATE` (columns, members, and `meta`, so a remote rename reaches the header). Syncs are sequence-numbered (a stale in-flight fetch cannot clobber newer state) and re-run on `SUBSCRIBED` (reconnect catch-up), tab refocus, and `online`. Deletes require `REPLICA IDENTITY FULL` (set in the migration) or their `board_id` filter never matches. The hook returns a `RealtimeStatus` (`connecting` until the first `SUBSCRIBED`, `live`, `reconnecting` during an outage; `navigator.onLine` false forces `reconnecting`) that `ConnectionIndicator` renders in the board header.
 
-**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the _subscriber's_ role (`authenticated`) under RLS. Migration-created tables start with no grants, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grants for `tasks`/`columns`/`board_members` are (re)asserted in `20261002053019_lock_down_data_api`; RLS still gates which rows are visible. Publishing a new table: follow the rules under "Grants + RLS" below.
+**A published table also needs `GRANT SELECT … TO authenticated`.** Realtime authorizes every `postgres_changes` event by running a SELECT as the _subscriber's_ role (`authenticated`) under RLS. Migration-created tables start with no grants, so without an explicit grant `authenticated` cannot read the table and **zero events are delivered** — writes commit, but collaborators see nothing until a manual refetch. The grants for `tasks`/`columns`/`board_members` are (re)asserted in `20261002053019_lock_down_data_api`; the `boards` grant lives in `20261006051512_publish_boards_realtime`, which sorts after the lockdown; RLS still gates which rows are visible. Publishing a new table: follow the rules under "Grants + RLS" below.
 
 **The channel must join as the user, never as `anon`.** Realtime fixes a `postgres_changes` subscription's claims at join, so an anon join still reports `SUBSCRIBED` and then RLS silently drops every event. supabase-js makes that the default on a fresh page: `subscribe()` copies the socket's token into the join synchronously, before the client's async session lookup resolves, and with no session it falls back to the anon key. So the hook does `await supabase.auth.getSession()`, then `await supabase.realtime.setAuth(session.access_token)`, and only then subscribes. With no session it `console.error`s and waits. `onAuthStateChange` resubscribes when a session appears or the user changes; a same-user token refresh needs nothing, because supabase-js pushes it to the joined channel. `CHANNEL_ERROR`, `TIMED_OUT` and a server-initiated `CLOSED` (e.g. an expired JWT) tear the channel down and resubscribe with a fresh session after a capped backoff (1 s doubling to 30 s), with one toast per outage; refocus and `online` resubscribe at once. realtime-js disconnects the socket the moment its last channel is removed and silently drops a join sent while that disconnect is in flight, so the hook always has the next channel in place before it removes the old one. To check a live board, every `realtime.subscription` row for it must have `claims_role = authenticated` and a `claims->>'sub'`.
 
@@ -260,10 +260,10 @@ Three paths reach the database, and each has exactly one barrier:
 | Supabase **Data API** — REST `/rest/v1`, GraphQL, `/rpc` | `anon` (the public anon key) or `authenticated` (a user's JWT) | **table grants + RLS**; Zod and the guards never run         |
 | Realtime `postgres_changes`                              | `authenticated`                                                | `GRANT SELECT` + the SELECT policies (not on DELETE — below) |
 
-The anon key ships in the browser bundle, so anyone can call the Data API, even though the app itself never does. `20261002053019_lock_down_data_api` sets the posture; keep it:
+The anon key ships in the browser bundle, so anyone can call the Data API, even though the app itself never does. `20261002053019_lock_down_data_api` and the migrations after it set the posture; keep it:
 
 - `anon` holds no privilege on any `public` table or sequence.
-- `authenticated` holds `SELECT` on `tasks`, `columns` and `board_members` (the Realtime tables) and nothing else.
+- `authenticated` holds `SELECT` on `tasks`, `columns`, `board_members` and `boards` (the Realtime tables) and nothing else.
 - RLS is on for every table and only `SELECT` policies exist. RLS with no policy (`invitations`, `analytics_events`, `_prisma_migrations`) is deny-all.
 - `ALTER DEFAULT PRIVILEGES FOR ROLE postgres` makes migration-created tables start with no grants. Supabase keeps the old defaults `FOR ROLE supabase_admin`, which a migration can't change, so create tables only through migrations.
 
@@ -374,7 +374,8 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, the analytics event/dedupe helpers, `proxy`'s route-protection (incl. unknown routes passing through to the 404 when signed in), the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404 page, both error boundaries and the auth page titles are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, `useRealtime`, the board header and connection indicator, the activity feed, the analytics event/dedupe helpers, `proxy`'s route-protection (incl. unknown routes passing through to the 404 when signed in), the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404 page, both error boundaries and the auth page titles are covered; most Server Actions and components are not.
+- **Browser tab title doesn't follow a live rename** — it comes from `generateMetadata` in `app/(dashboard)/board/[boardId]/page.tsx`, which is server-rendered.
 - **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.

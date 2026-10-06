@@ -133,8 +133,10 @@ const fake = vi.hoisted(() => {
   return { state, client, emitAuth };
 });
 
-const { push, toastError, getBoardData } = vi.hoisted(() => ({
-  push: vi.fn(),
+const { router, toastError, getBoardData } = vi.hoisted(() => ({
+  // Next's router is a stable object. The hook returns state now, so it re-renders,
+  // and a fresh router per render would re-run its effect every time.
+  router: { push: vi.fn() },
   toastError: vi.fn(),
   getBoardData: vi.fn(),
 }));
@@ -142,7 +144,7 @@ const { push, toastError, getBoardData } = vi.hoisted(() => ({
 // The browser client is a singleton in @supabase/ssr, so every call shares one instance.
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => fake.client }));
 vi.mock('@/app/actions/board-actions', () => ({ getBoardData }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => router }));
 vi.mock('sonner', () => ({ toast: { error: toastError } }));
 
 const BOARD_ID = '8dfd6e24-a3d8-4a36-afff-6d01cd29f5c1';
@@ -210,7 +212,9 @@ function renderRealtime(options?: { strict?: boolean }) {
 }
 
 function boardData(id = BOARD_ID) {
-  return { data: { id, title: 'QA – Realtime auth', columns: [], members: [] } };
+  return {
+    data: { id, title: 'QA – Realtime auth', description: null, columns: [], members: [] },
+  };
 }
 
 beforeEach(() => {
@@ -242,7 +246,7 @@ describe('useRealtime — authenticated subscription', () => {
     expect(liveChannels()[0].joinedWithToken).toBe('token-alice');
   });
 
-  it('listens to tasks, columns and board_members for this board only', async () => {
+  it('listens to tasks, columns, board_members and the board row for this board only', async () => {
     fake.state.session = alice;
     renderRealtime();
     await settle();
@@ -251,6 +255,7 @@ describe('useRealtime — authenticated subscription', () => {
       { table: 'tasks', filter: `board_id=eq.${BOARD_ID}` },
       { table: 'columns', filter: `board_id=eq.${BOARD_ID}` },
       { table: 'board_members', filter: `board_id=eq.${BOARD_ID}` },
+      { table: 'boards', filter: `id=eq.${BOARD_ID}` },
     ]);
   });
 
@@ -510,7 +515,11 @@ describe('useRealtime — sync', () => {
     expect(getBoardData).toHaveBeenCalledWith(BOARD_ID);
     expect(dispatch).toHaveBeenCalledWith({
       type: 'SYNC_STATE',
-      payload: { columns: [], members: [] },
+      payload: {
+        meta: { title: 'QA – Realtime auth', description: null },
+        columns: [],
+        members: [],
+      },
     });
   });
 
@@ -530,6 +539,22 @@ describe('useRealtime — sync', () => {
     await advance(1);
 
     expect(getBoardData).toHaveBeenCalledTimes(1);
+  });
+
+  it('resyncs when the board row changes (e.g. a rename)', async () => {
+    fake.state.session = alice;
+    renderRealtime();
+    await settle();
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    await settle();
+    getBoardData.mockClear();
+    const boardRow = liveChannels()[0].bindings.find((b) => b.table === 'boards');
+
+    act(() => boardRow?.callback());
+    await advance(300);
+
+    expect(getBoardData).toHaveBeenCalledTimes(1);
+    expect(getBoardData).toHaveBeenCalledWith(BOARD_ID);
   });
 
   it.each([
@@ -601,6 +626,7 @@ describe('useRealtime — lifecycle', () => {
       `board_id=eq.${OTHER_BOARD_ID}`,
       `board_id=eq.${OTHER_BOARD_ID}`,
       `board_id=eq.${OTHER_BOARD_ID}`,
+      `id=eq.${OTHER_BOARD_ID}`,
     ]);
   });
 
@@ -633,5 +659,196 @@ describe('useRealtime — lifecycle', () => {
     await advance(60_000);
 
     expect(subscribedChannels()).toHaveLength(1);
+  });
+});
+
+describe('useRealtime — status', () => {
+  let online = true;
+
+  /** jsdom's `navigator.onLine` is a prototype getter; shadow it per test, and remove the shadow after. */
+  function setOnline(next: boolean) {
+    online = next;
+    act(() => {
+      window.dispatchEvent(new Event(next ? 'online' : 'offline'));
+    });
+  }
+
+  beforeEach(() => {
+    online = true;
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window.navigator, 'onLine');
+  });
+
+  it('starts as connecting and goes live once the channel subscribes', async () => {
+    fake.state.session = alice;
+    const { result } = renderRealtime();
+    expect(result.current).toBe('connecting');
+
+    await settle();
+    // Joined, but the server has not acknowledged yet.
+    expect(result.current).toBe('connecting');
+
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+  });
+
+  it.each(['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'] as const)(
+    'shows reconnecting after %s and goes live again after the resubscribe',
+    async (status) => {
+      fake.state.session = alice;
+      const { result } = renderRealtime();
+      await settle();
+      act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+      expect(result.current).toBe('live');
+
+      fail(status);
+      await settle();
+      expect(result.current).toBe('reconnecting');
+
+      // The replacement has joined but not yet been acknowledged: still reconnecting.
+      await advance(1_000);
+      expect(liveChannels()).toHaveLength(1);
+      expect(result.current).toBe('reconnecting');
+
+      act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+      expect(result.current).toBe('live');
+    },
+  );
+
+  it('shows reconnecting while the browser is offline and recovers when it comes back online', async () => {
+    fake.state.session = alice;
+    const { result } = renderRealtime();
+    await settle();
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+
+    // The socket can stay open for tens of seconds after the network drops.
+    setOnline(false);
+    expect(result.current).toBe('reconnecting');
+
+    setOnline(true);
+    await settle();
+    expect(result.current).toBe('live');
+  });
+
+  it('stays reconnecting after coming back online until the dropped channel resubscribes', async () => {
+    fake.state.session = alice;
+    const { result } = renderRealtime();
+    await settle();
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+
+    setOnline(false);
+    fail();
+    await settle();
+    setOnline(true);
+    await settle();
+
+    // Online again, and the hook has rejoined without waiting out the backoff.
+    expect(liveChannels()).toHaveLength(1);
+    expect(result.current).toBe('reconnecting');
+
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+  });
+
+  it('reads as connecting again when boardId changes, until the new channel subscribes', async () => {
+    fake.state.session = alice;
+    const { result, rerender } = renderRealtime();
+    await settle();
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+
+    rerender({ boardId: OTHER_BOARD_ID });
+    expect(result.current).toBe('connecting');
+    await settle();
+    expect(result.current).toBe('connecting');
+
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+  });
+
+  it('ignores a late status report from a channel it has already replaced', async () => {
+    fake.state.session = alice;
+    const { result } = renderRealtime();
+    await settle();
+    const aliceChannel = liveChannels()[0];
+    emitAuth('SIGNED_IN', bob);
+    await settle();
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+
+    act(() => aliceChannel.emitStatus('CHANNEL_ERROR'));
+    await settle();
+
+    expect(result.current).toBe('live');
+  });
+
+  it('does not re-render the board when the status has not changed', async () => {
+    fake.state.session = alice;
+    let renders = 0;
+    const dispatch = vi.fn();
+    renderHook(() => {
+      renders += 1;
+      return useRealtime(BOARD_ID, dispatch);
+    });
+    await settle();
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    // A second report can cost React one bail-out render; a third must cost nothing.
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+    const settled = renders;
+
+    act(() => liveChannels()[0].emitStatus('SUBSCRIBED'));
+
+    expect(renders).toBe(settled);
+  });
+
+  it('shows reconnecting when there is no auth session', async () => {
+    const { result } = renderRealtime();
+    expect(result.current).toBe('connecting');
+
+    await settle();
+
+    expect(result.current).toBe('reconnecting');
+  });
+
+  it('stays live when a session read throws while the channel is up', async () => {
+    fake.state.session = alice;
+    const { result } = renderRealtime();
+    await settle();
+    const channel = liveChannels()[0];
+    act(() => channel.emitStatus('SUBSCRIBED'));
+    expect(result.current).toBe('live');
+
+    // A refocus calls connect(); the session read fails, but the channel is untouched.
+    fake.client.auth.getSession.mockRejectedValueOnce(new Error('lock stolen'));
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await settle();
+    expect(result.current).toBe('live');
+
+    // The scheduled retry finds the same user's channel and returns early. Nothing
+    // would ever clear a `reconnecting` set above, since no new SUBSCRIBED arrives.
+    await advance(60_000);
+    expect(liveChannels()).toEqual([channel]);
+    expect(channel.removed).toBe(false);
+    expect(result.current).toBe('live');
+  });
+
+  it('shows reconnecting when reading the session throws and no channel is joined', async () => {
+    fake.state.session = alice;
+    // connect() runs twice on mount (the effect and the initial auth event).
+    fake.client.auth.getSession
+      .mockRejectedValueOnce(new Error('lock stolen'))
+      .mockRejectedValueOnce(new Error('lock stolen'));
+    const { result } = renderRealtime();
+
+    await settle();
+
+    expect(result.current).toBe('reconnecting');
+    // It retries on the backoff rather than giving up.
+    await advance(1_000);
+    expect(liveChannels()).toHaveLength(1);
   });
 });
