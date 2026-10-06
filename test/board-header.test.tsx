@@ -172,6 +172,27 @@ describe('BoardHeader', () => {
     expect(heading()).toHaveTextContent('QA board');
   });
 
+  it("does not overwrite a collaborator's rename when the editor is blurred untouched", async () => {
+    const { board, captured, user } = renderHeader();
+
+    await user.click(screen.getByRole('button', { name: 'QA board' }));
+    // A collaborator renames the board while the editor is open, seeded with the old title.
+    act(() =>
+      captured.dispatch?.({
+        type: 'SYNC_STATE',
+        payload: {
+          meta: { title: 'Renamed elsewhere', description: null },
+          columns: [],
+          members: board.members,
+        },
+      }),
+    );
+    await user.tab();
+
+    expect(updateBoard).not.toHaveBeenCalled();
+    expect(heading()).toHaveTextContent('Renamed elsewhere');
+  });
+
   it('shows a viewer the title as plain text, not a rename button', () => {
     renderHeader('VIEWER');
 

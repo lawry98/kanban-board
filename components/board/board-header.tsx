@@ -33,6 +33,10 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
   const [titleValue, setTitleValue] = useState(title);
   // Escape sets this before blurring so the shared blur handler skips the save.
   const cancelEditRef = useRef(false);
+  // The title the editor was seeded with. A save only happens if the input moved
+  // off it; comparing against the live title alone would write the stale seed
+  // back over a rename a collaborator made while the editor was open.
+  const editSeedRef = useRef(title);
   const [shareOpen, setShareOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -40,13 +44,14 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
   const taskCount = state.columns.reduce((sum, col) => sum + col.tasks.length, 0);
 
   function startEditing() {
+    editSeedRef.current = title;
     setTitleValue(title);
     setIsEditingTitle(true);
   }
 
   async function saveTitle(raw: string) {
     const next = raw.trim();
-    if (!next || next === title) return;
+    if (!next || next === editSeedRef.current || next === title) return;
 
     // Snapshot at call time; revert only this field so a concurrent resync of
     // columns/members is not rolled back with it.
