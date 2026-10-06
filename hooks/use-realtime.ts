@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type { Dispatch } from 'react';
@@ -22,6 +22,22 @@ const RESUBSCRIBE_MAX_MS = 30_000;
  * NOT eject them.
  */
 const ACCESS_LOST_ERROR = 'Forbidden';
+
+/** What the board header shows; see (8) in the design comment below. */
+export type RealtimeStatus = 'connecting' | 'live' | 'reconnecting';
+
+function subscribeToConnectivity(onChange: () => void): () => void {
+  window.addEventListener('online', onChange);
+  window.addEventListener('offline', onChange);
+  return () => {
+    window.removeEventListener('online', onChange);
+    window.removeEventListener('offline', onChange);
+  };
+}
+
+const getOnline = (): boolean => navigator.onLine;
+// The server cannot know; assume online so the first paint reads as `connecting`.
+const getServerOnline = (): boolean => true;
 
 /**
  * Realtime board synchronisation.
@@ -83,12 +99,30 @@ const ACCESS_LOST_ERROR = 'Forbidden';
  *    new channel before removing the old one. A failed channel gets a reserved
  *    successor before it is removed.
  *
+ * 8. Status: the hook returns a `RealtimeStatus` for the header. `connecting` is
+ *    the state until the channel's first `SUBSCRIBED` (also after a `boardId`
+ *    change); `live` follows `SUBSCRIBED`; `reconnecting` follows the outage
+ *    branch of (6) and a `connect()` that finds no session or throws. It is only
+ *    ever set from a callback or after an await, after the same `disposed` /
+ *    `next !== channel` guards as everything else, so a late report from a
+ *    replaced channel cannot change it. The browser's own `navigator.onLine`
+ *    overrides it: a dropped network can leave the socket open until the
+ *    heartbeat times out, tens of seconds, and `live` would be a lie meanwhile.
+ *    Back online, the channel's own status shows again.
+ *
  * Known better design (deliberately out of scope for this pass): switch to
  * `broadcast` messages carrying the mutated row plus an origin id, so a client
  * can ignore its own echoes and apply deltas without a refetch.
  */
-export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
+export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>): RealtimeStatus {
   const router = useRouter();
+  // Keyed by board so a boardId change reads as `connecting` without a
+  // synchronous setState in the effect body.
+  const [channelState, setChannelState] = useState<{ boardId: string; status: RealtimeStatus }>({
+    boardId,
+    status: 'connecting',
+  });
+  const online = useSyncExternalStore(subscribeToConnectivity, getOnline, getServerOnline);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Monotonic sequence for fetch ordering; see (3) above.
   const syncSeqRef = useRef(0);
@@ -154,6 +188,14 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryAttempt = 0;
     let outageNotified = false;
+
+    function setStatus(status: RealtimeStatus) {
+      if (disposed) return;
+      // Same value, same state object: a repeat report must not re-render the board.
+      setChannelState((prev) =>
+        prev.boardId === boardId && prev.status === status ? prev : { boardId, status },
+      );
+    }
 
     function removeCurrentChannel() {
       if (!channel) return;
@@ -223,6 +265,7 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
             // Initial join *and* every reconnect: catch up on missed events.
             retryAttempt = 0;
             outageNotified = false;
+            setStatus('live');
             void syncBoard();
             break;
           case 'CHANNEL_ERROR':
@@ -232,6 +275,7 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
             // from the server (e.g. an expired JWT), and realtime-js won't rejoin it.
             reserved ??= createChannel();
             removeCurrentChannel();
+            setStatus('reconnecting');
             if (!outageNotified) {
               outageNotified = true;
               toast.error('Live updates interrupted. Reconnecting…');
@@ -259,6 +303,7 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
 
         if (!session) {
           removeCurrentChannel();
+          setStatus('reconnecting');
           console.error(
             `useRealtime: no auth session; not subscribing to board ${boardId}.`,
             error ?? '',
@@ -276,6 +321,7 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
       } catch (err) {
         if (superseded()) return;
         console.error('useRealtime: failed to subscribe', err);
+        setStatus('reconnecting');
         scheduleResubscribe();
       }
     }
@@ -325,4 +371,7 @@ export function useRealtime(boardId: string, dispatch: Dispatch<BoardAction>) {
       window.removeEventListener('online', handleOnline);
     };
   }, [boardId, debouncedSync, syncBoard]);
+
+  const channelStatus = channelState.boardId === boardId ? channelState.status : 'connecting';
+  return online ? channelStatus : 'reconnecting';
 }

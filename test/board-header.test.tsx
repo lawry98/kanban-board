@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+import type { RealtimeStatus } from '@/hooks/use-realtime';
 import type { BoardAction, BoardMemberWithProfile, BoardWithDetails } from '@/types';
 import type { Role } from '@prisma/client';
 
@@ -68,7 +69,11 @@ function CaptureDispatch({
   return null;
 }
 
-function renderHeader(role: Role = 'OWNER', title = 'QA board') {
+function renderHeader(
+  role: Role = 'OWNER',
+  title = 'QA board',
+  realtimeStatus: RealtimeStatus = 'live',
+) {
   const board = makeBoard(role, title);
   const captured: { dispatch?: Dispatch<BoardAction> } = {};
   const user = userEvent.setup();
@@ -79,7 +84,7 @@ function renderHeader(role: Role = 'OWNER', title = 'QA board') {
           captured.dispatch = dispatch;
         }}
       />
-      <BoardHeader onOpenActivity={vi.fn()} />
+      <BoardHeader realtimeStatus={realtimeStatus} onOpenActivity={vi.fn()} />
     </BoardProvider>,
   );
   return { board, captured, user };
@@ -198,6 +203,16 @@ describe('BoardHeader', () => {
 
     expect(heading()).toHaveTextContent('QA board');
     expect(screen.queryByRole('button', { name: 'QA board' })).not.toBeInTheDocument();
+  });
+
+  it('shows the connection status beside the board stats', () => {
+    renderHeader('OWNER', 'QA board', 'reconnecting');
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Reconnecting…');
+    // It sits in the stats line, so a long title cannot be squeezed by it.
+    expect(status.parentElement).toHaveTextContent('0 columns · 0 tasks');
+    expect(heading()).not.toContainElement(status);
   });
 });
 

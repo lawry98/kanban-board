@@ -15,16 +15,20 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/board/confirm-dialog';
+import { ConnectionIndicator } from '@/components/board/connection-indicator';
 import { MembersDialog } from '@/components/board/members-dialog';
 import { ShareBoardDialog } from '@/components/board/share-board-dialog';
 import { deleteBoard, updateBoard } from '@/app/actions/board-actions';
 import { useBoardContext } from '@/contexts/board-context';
 
+import type { RealtimeStatus } from '@/hooks/use-realtime';
+
 interface BoardHeaderProps {
+  realtimeStatus: RealtimeStatus;
   onOpenActivity: () => void;
 }
 
-export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
+export function BoardHeader({ realtimeStatus, onOpenActivity }: BoardHeaderProps) {
   const { state, dispatch, board, isOwner, canEdit } = useBoardContext();
   // The live title lives in reducer state; `board` is the mount-time snapshot, so
   // only its `id` is read from it.
@@ -139,9 +143,14 @@ export function BoardHeader({ onOpenActivity }: BoardHeaderProps) {
             )}
           </h1>
         )}
-        <p className="text-muted-foreground text-xs">
-          {state.columns.length} columns · {taskCount} tasks
-        </p>
+        {/* The status shares the stats line, so it never takes width from the truncating title. */}
+        <div className="text-muted-foreground flex items-center gap-2 text-xs">
+          <span>
+            {state.columns.length} columns · {taskCount} tasks
+          </span>
+          <span aria-hidden="true">·</span>
+          <ConnectionIndicator status={realtimeStatus} />
+        </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
