@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
+import BoardNotFound from '@/app/(dashboard)/board/[boardId]/not-found';
 import NotFound, { metadata } from '@/app/not-found';
 
 describe('NotFound', () => {
@@ -18,5 +19,14 @@ describe('NotFound', () => {
 
   it('sets the page title', () => {
     expect(metadata.title).toBe('Page Not Found');
+  });
+});
+
+describe('BoardNotFound', () => {
+  it('fills the dynamic viewport below the navbar', () => {
+    const { container } = render(<BoardNotFound />);
+
+    // `vh` is the largest viewport on mobile, so the message sat off-centre behind the bars.
+    expect(container.firstElementChild).toHaveClass('h-[calc(100dvh-56px)]');
   });
 });

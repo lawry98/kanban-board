@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 
 export default function BoardNotFound() {
   return (
-    <div className="flex h-[calc(100vh-56px)] items-center justify-center">
+    <div className="flex h-[calc(100dvh-56px)] items-center justify-center">
       <div className="flex max-w-sm flex-col items-center gap-4 px-4 text-center">
         <AlertTriangle className="text-muted-foreground/50 h-12 w-12" />
         <h1 className="text-xl font-semibold">Board not found</h1>

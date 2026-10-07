@@ -152,7 +152,7 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
           <SheetDescription className="sr-only">Recent changes to this board.</SheetDescription>
         </SheetHeader>
         <Separator className="my-4" />
-        <ScrollArea className="h-[calc(100vh-120px)]">
+        <ScrollArea className="h-[calc(100dvh-120px)]">
           {isLoading ? (
             <div className="space-y-4 pr-4">
               {LOG_PLACEHOLDERS.map((key) => (
