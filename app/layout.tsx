@@ -43,7 +43,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           disableTransitionOnChange
         >
           {children}
-          <Toaster richColors closeButton />
+          {/* No `richColors`: its light-mode error and success text is under 4.5:1. */}
+          <Toaster closeButton />
         </ThemeProvider>
       </body>
     </html>

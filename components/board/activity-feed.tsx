@@ -187,7 +187,9 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
                       {log.profile?.avatarUrl && (
                         <AvatarImage src={log.profile.avatarUrl} alt={name} />
                       )}
-                      <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                      <AvatarFallback className="text-foreground text-xs">
+                        {initials}
+                      </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-snug">

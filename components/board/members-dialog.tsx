@@ -118,7 +118,7 @@ export function MembersDialog({ open, onOpenChange }: MembersDialogProps) {
                   {member.profile.avatarUrl && (
                     <AvatarImage src={member.profile.avatarUrl} alt={name} />
                   )}
-                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                  <AvatarFallback className="text-foreground text-xs">{initials}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">

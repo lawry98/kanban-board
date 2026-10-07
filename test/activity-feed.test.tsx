@@ -30,6 +30,15 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
+describe('ActivityFeed layout', () => {
+  it('draws avatar initials in the foreground colour', async () => {
+    await renderFeedWith(makeLog('TASK_UPDATED', {}));
+
+    // muted-foreground on the fallback's muted background is 4.35:1, under AA's 4.5:1.
+    expect(await screen.findByText('AD')).toHaveClass('text-foreground');
+  });
+});
+
 describe('ActivityFeed descriptions', () => {
   it.each([
     ['BOARD_UPDATED', { fields: ['title'], title: 'Roadmap' }, 'renamed the board to "Roadmap"'],
