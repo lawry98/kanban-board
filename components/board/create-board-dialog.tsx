@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { createBoard } from '@/app/actions/board-actions';
+import { MAX_BOARD_DESCRIPTION_LENGTH, MAX_BOARD_TITLE_LENGTH } from '@/lib/constants';
 import { focusById } from '@/lib/dom-ids';
 
 interface CreateBoardDialogProps {
@@ -77,7 +78,7 @@ export function CreateBoardDialog({ open, onOpenChange, returnFocusId }: CreateB
                 placeholder="e.g. Product Roadmap"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                maxLength={50}
+                maxLength={MAX_BOARD_TITLE_LENGTH}
                 required
                 autoFocus
               />
@@ -89,7 +90,7 @@ export function CreateBoardDialog({ open, onOpenChange, returnFocusId }: CreateB
                 placeholder="What is this board for?"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                maxLength={500}
+                maxLength={MAX_BOARD_DESCRIPTION_LENGTH}
                 rows={3}
               />
             </div>

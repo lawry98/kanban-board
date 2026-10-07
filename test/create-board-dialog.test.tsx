@@ -19,6 +19,8 @@ vi.mock('@/components/ui/number-ticker', () => ({
 }));
 
 import { BoardsClient } from '@/app/(dashboard)/boards/boards-client';
+import { CreateBoardDialog } from '@/components/board/create-board-dialog';
+import { MAX_BOARD_DESCRIPTION_LENGTH, MAX_BOARD_TITLE_LENGTH } from '@/lib/constants';
 
 const EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
@@ -79,5 +81,20 @@ describe('CreateBoardDialog returns focus', () => {
     await user.keyboard('{Escape}');
 
     await waitFor(() => expect(opener).toHaveFocus());
+  });
+});
+
+describe('CreateBoardDialog fields', () => {
+  it('caps each text field at its schema limit', () => {
+    render(<CreateBoardDialog open onOpenChange={vi.fn()} returnFocusId="new-board" />);
+
+    expect(screen.getByRole('textbox', { name: /^Title/ })).toHaveAttribute(
+      'maxlength',
+      String(MAX_BOARD_TITLE_LENGTH),
+    );
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute(
+      'maxlength',
+      String(MAX_BOARD_DESCRIPTION_LENGTH),
+    );
   });
 });

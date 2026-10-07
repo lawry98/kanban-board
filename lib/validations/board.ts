@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { MAX_BOARD_TITLE_LENGTH } from '@/lib/constants';
+import { MAX_BOARD_DESCRIPTION_LENGTH, MAX_BOARD_TITLE_LENGTH } from '@/lib/constants';
 
 export const uuidSchema = z.uuid('Invalid id');
 
@@ -10,7 +10,13 @@ const titleSchema = z
   .min(1, 'Title is required')
   .max(MAX_BOARD_TITLE_LENGTH, `Title must be ${MAX_BOARD_TITLE_LENGTH} characters or less`);
 
-const descriptionSchema = z.string().trim().max(500, 'Description must be 500 characters or less');
+const descriptionSchema = z
+  .string()
+  .trim()
+  .max(
+    MAX_BOARD_DESCRIPTION_LENGTH,
+    `Description must be ${MAX_BOARD_DESCRIPTION_LENGTH} characters or less`,
+  );
 
 export const createBoardSchema = z.object({
   title: titleSchema,

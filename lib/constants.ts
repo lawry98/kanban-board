@@ -27,6 +27,7 @@ export const MAX_COLUMNS = 8;
 // Text limits shared by the Zod schemas and the inputs' `maxLength`. They live here, not in
 // lib/validations, so a client component can import them without pulling in Zod.
 export const MAX_BOARD_TITLE_LENGTH = 50;
+export const MAX_BOARD_DESCRIPTION_LENGTH = 500;
 export const MAX_COLUMN_TITLE_LENGTH = 100;
 export const MAX_TASK_TITLE_LENGTH = 255;
 export const MAX_TASK_DESCRIPTION_LENGTH = 10_000;
