@@ -14,6 +14,7 @@ import {
   requireBoardMember,
   toActionError,
 } from '@/lib/auth/require-access';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { DEFAULT_COLUMNS } from '@/lib/constants';
 import {
   addBoardMemberSchema,
@@ -33,6 +34,7 @@ const POSITION_STEP = 1000;
 export async function createBoard(input: unknown): Promise<ActionResult<Board>> {
   try {
     const user = await requireAuth();
+    await enforceRateLimit(user.id, 'mutation');
     const data = createBoardSchema.parse(input);
 
     const board = await prisma.board.create({
@@ -71,6 +73,7 @@ export async function updateBoard(boardId: string, input: unknown): Promise<Acti
   try {
     const id = uuidSchema.parse(boardId);
     const { user } = await requireBoardAccess(id, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
     const data = updateBoardSchema.parse(input);
 
     const board = await prisma.board.update({
@@ -104,6 +107,7 @@ export async function deleteBoard(boardId: string): Promise<ActionResult<{ id: s
   try {
     const id = uuidSchema.parse(boardId);
     const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     // Logged before the delete: `activity_logs.board_id` cascades, so the row itself goes
     // away with the board — the write exists so realtime/replication consumers observe it.
@@ -137,6 +141,7 @@ export async function addBoardMember(
   try {
     const id = uuidSchema.parse(boardId);
     const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'memberAdd');
     const { email, role } = addBoardMemberSchema.parse(input);
 
     const targetProfile = await prisma.profile.findUnique({
@@ -180,6 +185,7 @@ export async function removeBoardMember(
     const id = uuidSchema.parse(boardId);
     const targetUserId = uuidSchema.parse(userId);
     const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     // Read-then-delete in one transaction: removing the last OWNER would orphan the board
     // with no in-app way to recover it.
@@ -225,6 +231,7 @@ export async function changeMemberRole(
     const id = uuidSchema.parse(boardId);
     const targetUserId = uuidSchema.parse(userId);
     const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
     const { role } = changeMemberRoleSchema.parse(input);
 
     // Read-then-update in one transaction so the OWNER-target check cannot race a
@@ -269,6 +276,7 @@ export async function leaveBoard(boardId: string): Promise<ActionResult<{ id: st
     const id = uuidSchema.parse(boardId);
     const user = await requireAuth();
     const membership = await requireBoardMember(id, user.id);
+    await enforceRateLimit(user.id, 'mutation');
 
     // Same last-owner guard as removeBoardMember: leaving as the sole owner would
     // orphan the board with no in-app way to recover it.

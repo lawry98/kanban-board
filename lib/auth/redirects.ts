@@ -31,6 +31,9 @@ export function loginWithError(code: string): string {
 /** Where an authenticated user lands when no explicit destination is given. */
 export const DEFAULT_REDIRECT = ROUTES.boards;
 
+/** Parse base for `sanitizeNext`; `.invalid` can never resolve. */
+const SENTINEL_ORIGIN = 'http://n.invalid';
+
 /**
  * Only same-origin relative paths are allowed as a post-login destination.
  *
@@ -39,12 +42,34 @@ export const DEFAULT_REDIRECT = ROUTES.boards;
  * the attacker's. Protocol-relative (`//evil.com`) and backslash (`/\evil.com`)
  * forms are rejected for the same reason.
  *
- * Shared by the OAuth callback, the login/register pages, and the join flow so
- * the guard is defined once and cannot drift between call sites.
+ * Prefix checks alone are not enough, because the destination is later resolved
+ * by the WHATWG URL parser, which strips tab/CR/LF anywhere in the input: a
+ * `/\t/evil.com` passes a `startsWith('//')` test yet parses as `//evil.com`.
+ * So every C0 control, DEL and backslash is rejected outright, and the value is
+ * then normalised through the parser itself: a result that leaves the sentinel
+ * origin, or whose normalised path starts with `//` (`/..//x`, `/.//x`), falls
+ * back to the default. The returned string is the parser's normalised
+ * path + query + hash, so what is validated is what is used.
+ *
+ * Shared by the proxy, the OAuth callback, and the login/register pages so the guard
+ * is defined once and cannot drift between call sites. The join page doesn't call it:
+ * it only builds `?next=/join/<token>` links, which those auth pages re-check.
  */
 export function sanitizeNext(next: string | null | undefined): string {
-  if (!next) return DEFAULT_REDIRECT;
-  if (!next.startsWith('/')) return DEFAULT_REDIRECT;
-  if (next.startsWith('//') || next.startsWith('/\\')) return DEFAULT_REDIRECT;
-  return next;
+  if (!next || !next.startsWith('/')) return DEFAULT_REDIRECT;
+  // The URL parser silently strips tab/CR/LF, so '/\t/evil.com' would become
+  // '//evil.com'. Reject every C0 control, DEL and backslash outright.
+  if (/[\u0000-\u001F\u007F\\]/.test(next)) return DEFAULT_REDIRECT;
+
+  let url: URL;
+  try {
+    url = new URL(next, SENTINEL_ORIGIN);
+  } catch {
+    return DEFAULT_REDIRECT;
+  }
+  if (url.origin !== SENTINEL_ORIGIN) return DEFAULT_REDIRECT;
+
+  const normalized = url.pathname + url.search + url.hash;
+  // '/..//x' and '/.//x' normalize to '//x', protocol-relative if reused as a path.
+  return normalized.startsWith('//') ? DEFAULT_REDIRECT : normalized;
 }

@@ -13,6 +13,7 @@ import {
   requireAuth,
   toActionError,
 } from '@/lib/auth/require-access';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { MAX_COLUMNS } from '@/lib/constants';
 import {
   createColumnSchema,
@@ -32,6 +33,7 @@ export async function createColumn(input: unknown): Promise<ActionResult<ColumnW
   try {
     const { boardId, title, color } = createColumnSchema.parse(input);
     const { user } = await requireBoardAccess(boardId, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     const [count, maxPosition] = await Promise.all([
       prisma.column.count({ where: { boardId } }),
@@ -80,6 +82,7 @@ export async function updateColumn(
     const id = uuidSchema.parse(columnId);
     // Board is derived from the column row — never from the payload.
     const { user, boardId } = await requireColumnAccess(id, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
     const data = updateColumnSchema.parse(input);
 
     const column = await prisma.column.update({
@@ -112,6 +115,7 @@ export async function deleteColumn(columnId: string): Promise<ActionResult<true>
   try {
     const id = uuidSchema.parse(columnId);
     const { user, boardId, column } = await requireColumnAccess(id, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     await prisma.column.delete({ where: { id } });
 
@@ -134,6 +138,7 @@ export async function deleteColumn(columnId: string): Promise<ActionResult<true>
 export async function reorderColumns(input: unknown): Promise<ActionResult<true>> {
   try {
     const user = await requireAuth();
+    await enforceRateLimit(user.id, 'mutation');
     const { columnIds } = reorderColumnsSchema.parse(input);
 
     const unique = new Set(columnIds);

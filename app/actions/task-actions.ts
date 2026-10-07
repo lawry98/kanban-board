@@ -14,6 +14,7 @@ import {
   requireTaskAccess,
   toActionError,
 } from '@/lib/auth/require-access';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { createTaskSchema, moveTaskSchema, updateTaskSchema } from '@/lib/validations/task';
 import { uuidSchema } from '@/lib/validations/board';
 import { PUBLIC_PROFILE_SELECT } from '@/types/board';
@@ -69,6 +70,7 @@ export async function createTask(input: unknown): Promise<ActionResult<TaskWithA
     // The board is derived from the column being written to. There is no client-supplied
     // boardId to disagree with it, so a column on someone else's board simply fails authz.
     const { user, boardId } = await requireColumnAccess(data.columnId, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     if (data.assigneeId) await requireBoardMemberExists(boardId, data.assigneeId);
 
@@ -116,6 +118,7 @@ export async function updateTask(
   try {
     const id = uuidSchema.parse(taskId);
     const { user, boardId, task: current } = await requireTaskAccess(id, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
     const data = updateTaskSchema.parse(input);
 
     // A `columnId` equal to the task's current column is not a move: clients may re-send it
@@ -173,6 +176,7 @@ export async function moveTask(input: unknown): Promise<ActionResult<true>> {
   try {
     const { taskId, targetColumnId, targetIndex } = moveTaskSchema.parse(input);
     const { user, boardId, task } = await requireTaskAccess(taskId, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     // The destination column must live on the task's own board.
     const targetColumn = await requireColumnOnBoard(targetColumnId, boardId);
@@ -223,6 +227,7 @@ export async function deleteTask(taskId: string): Promise<ActionResult<true>> {
   try {
     const id = uuidSchema.parse(taskId);
     const { user, boardId, task } = await requireTaskAccess(id, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     // Sparse positions mean the surviving rows need no renumbering after a delete.
     await prisma.task.delete({ where: { id } });

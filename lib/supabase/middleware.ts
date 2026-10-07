@@ -20,9 +20,17 @@ export interface SessionResult {
  * is a network round-trip to the auth server, and with refresh-token rotation
  * two concurrent calls can race on the same single-use refresh token, so the
  * caller must reuse the `user` returned here rather than asking again.
+ *
+ * `requestHeaders` replaces the headers forwarded to the downstream render; it
+ * defaults to the incoming request's own.
  */
-export async function updateSession(request: NextRequest): Promise<SessionResult> {
-  const response = NextResponse.next({ request });
+export async function updateSession(
+  request: NextRequest,
+  requestHeaders: Headers = request.headers,
+): Promise<SessionResult> {
+  // `requestHeaders` reach Server Components (proxy.ts adds the CSP + nonce here).
+  // Must be a Headers instance, or NextResponse.next throws.
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     env.NEXT_PUBLIC_SUPABASE_URL,

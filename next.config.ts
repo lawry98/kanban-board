@@ -12,10 +12,9 @@ const securityHeaders = [
     key: 'Permissions-Policy',
     value: 'camera=(), microphone=(), geolocation=(), browsing-topics=()',
   },
-  // TODO: add a Content-Security-Policy. Next injects inline bootstrap scripts, so a
-  // useful CSP needs a per-request nonce generated in `proxy.ts` and propagated to the
-  // header. Shipping a CSP without that breaks the app in production, so it is
-  // deliberately left as a follow-up rather than set here.
+  // No Content-Security-Policy here on purpose: it is set per request in `proxy.ts`
+  // (nonce-based, built in `lib/csp.ts`). A static header has no nonce, and two CSP
+  // headers are both enforced, so adding one here would break the app.
 ];
 
 // The image optimizer may fetch Storage objects from THIS project only: a `*.supabase.co`

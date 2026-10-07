@@ -1,50 +1,40 @@
+import { cache } from 'react';
 import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 
-import { PublicError, requireBoardAccess } from '@/lib/auth/require-access';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
-import { PUBLIC_PROFILE_SELECT } from '@/types/board';
+import { MEMBER_PROFILE_INCLUDE, PUBLIC_PROFILE_SELECT } from '@/types/board';
 import { BoardView } from './board-view';
+
+import type { Role } from '@prisma/client';
+import type { BoardWithDetails } from '@/types';
 
 interface BoardPageProps {
   params: Promise<{ boardId: string }>;
 }
 
-export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
-  const { boardId } = await params;
+type BoardForViewer =
+  | { status: 'ok'; userId: string; role: Role; board: BoardWithDetails }
+  | { status: 'unauthenticated' }
+  | { status: 'not-found' };
 
-  // Metadata is streamed even when the page below calls notFound(), so the title needs
-  // its own membership check or the not-found response carries it to a non-member.
-  try {
-    await requireBoardAccess(boardId);
-  } catch (err) {
-    if (err instanceof PublicError) return { title: 'Board' };
-    throw err;
-  }
-
-  const board = await prisma.board.findUnique({
-    where: { id: boardId },
-    select: { title: true },
-  });
-  return { title: board?.title ?? 'Board' };
-}
-
-export default async function BoardPage({ params }: BoardPageProps) {
-  const { boardId } = await params;
-
+/**
+ * The board as the signed-in viewer may see it, or why they can't. `cache()` makes
+ * generateMetadata and the page share one authorization per request, so a
+ * non-member gets neither the board nor its title.
+ */
+const loadBoardForViewer = cache(async (boardId: string): Promise<BoardForViewer> => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  if (!user) redirect('/login');
+  if (!user) return { status: 'unauthenticated' };
 
   const membership = await prisma.boardMember.findFirst({
     where: { boardId, userId: user.id },
   });
-
-  if (!membership) notFound();
+  if (!membership) return { status: 'not-found' };
 
   const board = await prisma.board.findUnique({
     where: { id: boardId },
@@ -62,13 +52,29 @@ export default async function BoardPage({ params }: BoardPageProps) {
         },
       },
       members: {
-        include: { profile: true },
+        include: MEMBER_PROFILE_INCLUDE,
       },
       creator: { select: PUBLIC_PROFILE_SELECT },
     },
   });
+  if (!board) return { status: 'not-found' };
 
-  if (!board) notFound();
+  return { status: 'ok', userId: user.id, role: membership.role, board };
+});
 
-  return <BoardView board={board} currentUserId={user.id} userRole={membership.role} />;
+export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
+  const { boardId } = await params;
+  // Unexpected failures propagate rather than masquerading as a missing board.
+  const result = await loadBoardForViewer(boardId);
+  return { title: result.status === 'ok' ? result.board.title : 'Board' };
+}
+
+export default async function BoardPage({ params }: BoardPageProps) {
+  const { boardId } = await params;
+  const result = await loadBoardForViewer(boardId);
+
+  if (result.status === 'unauthenticated') redirect('/login');
+  if (result.status === 'not-found') notFound();
+
+  return <BoardView board={result.board} currentUserId={result.userId} userRole={result.role} />;
 }

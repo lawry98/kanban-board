@@ -5,6 +5,15 @@ import type { Mock } from 'vitest';
 // Same approach as test/proxy.test.ts: mock `updateSession` so no Supabase SSR client,
 // cookies or network round-trip is involved.
 vi.mock('@/lib/supabase/middleware', () => ({ updateSession: vi.fn() }));
+// `proxy` reads the Supabase origin from validated env to build the CSP; the real
+// `@/lib/env` throws on import without the full environment.
+vi.mock('@/lib/env', () => ({
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: 'https://abcd.supabase.co',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+    NEXT_PUBLIC_SENTRY_DSN: undefined,
+  },
+}));
 
 import { updateSession } from '@/lib/supabase/middleware';
 import { proxy } from '@/proxy';
@@ -32,7 +41,7 @@ function get(pathname: string): NextRequest {
 // The proxy has no list of known routes, so it cannot 404 by itself. For a signed-in user it
 // must let an unknown path through, and Next then renders app/not-found.tsx
 // (test/not-found-page.test.tsx covers that page's content). Signed out, deny-by-default
-// sends the same path to /login before Next ever resolves it.
+// sends the same path to /login (remembering it in `next`) before Next ever resolves it.
 describe('proxy on an unknown route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -47,13 +56,15 @@ describe('proxy on an unknown route', () => {
     expect(res.headers.get('location')).toBeNull();
   });
 
-  it.each(UNKNOWN_ROUTES)('redirects a signed-out GET to %s to /login', async (path) => {
+  it.each(UNKNOWN_ROUTES)('redirects a signed-out GET to %s to /login?next=', async (path) => {
     stubSession(null);
 
     const res = await proxy(get(path));
 
     const location = res.headers.get('location');
     expect(location).not.toBeNull();
-    expect(new URL(location as string).pathname).toBe('/login');
+    const url = new URL(location as string);
+    expect(url.pathname).toBe('/login');
+    expect(url.search).toBe(`?next=${encodeURIComponent(path)}`);
   });
 });

@@ -67,16 +67,22 @@ lib/
 ├── db-tls.ts                     # DB TLS policy + bundled Supabase Root 2021 CA
 ├── env.ts                        # Zod-validated environment variables (incl. optional Sentry DSNs)
 ├── sentry-options.ts             # Sentry init options shared by server/edge/client (what is NOT collected)
+├── sentry-flush.ts               # `flushSentryAfterResponse`: keeps a serverless function alive for Sentry's send
 ├── dates.ts                      # Due-date (calendar day) parse/format/isOverdue — pure, no I/O
 ├── drag-announcements.ts         # Screen-reader drag messages + drag-handle instructions — pure, no I/O
 ├── dom-ids.ts                    # Ids a closing dialog returns focus to (card, column menu) + focusById
+├── invitations.ts                # Invite TTL, expiry and email-binding checks — pure, no I/O
+├── rate-limit.ts                 # Postgres fixed-window limiter (`enforceRateLimit`); fails open
+├── csp.ts                        # Per-request nonce Content-Security-Policy builder — pure
 ├── auth/require-access.ts        # Authorization guards + ActionResult + toActionError + logActivity
+├── auth/redirects.ts             # ROUTES, DEFAULT_REDIRECT, `sanitizeNext` (the one `next`-param guard)
 ├── analytics/events.ts           # Closed AnalyticsEventInput union + dedupe-key builders (no I/O)
 ├── analytics/track.ts            # Server-only best-effort event emitter (never throws)
 ├── supabase/{client,server,middleware}.ts   # Auth + Realtime clients only
 ├── validations/{board,column,task,invitation,analytics}.ts   # Zod schemas
 ├── utils.ts · constants.ts
-proxy.ts                          # Next 16 middleware (renamed from middleware.ts): route protection
+proxy.ts                          # Next 16 middleware (renamed from middleware.ts): route protection,
+                                  #   per-request CSP + nonce, login `next` param
 instrumentation.ts                # Next register(): loads sentry.server/edge config; exports onRequestError
 instrumentation-client.ts         # Browser Sentry init (only when NEXT_PUBLIC_SENTRY_DSN is set)
 sentry.{server,edge}.config.ts    # Server/edge Sentry init (only when a DSN is set)
@@ -171,12 +177,13 @@ CI (`.github/workflows/ci.yml`) runs `prisma generate` → typecheck → `lint -
 
 ## Authorization (read this before touching `app/actions/`)
 
-All authorization lives in **`lib/auth/require-access.ts`**. It is the _only_ thing protecting data on the Prisma path; RLS never runs there (grants + RLS guard only the Supabase Data API — see "Grants + RLS" below). Four rules:
+All authorization lives in **`lib/auth/require-access.ts`**. It is the _only_ thing protecting data on the Prisma path; RLS never runs there (grants + RLS guard only the Supabase Data API — see "Grants + RLS" below). Five rules:
 
 1. **Never trust a parent id from the client. Derive it from the child row.** To act on a task, call `requireTaskAccess(taskId)` — it loads the task, derives `boardId` from it, and authorizes that. Do **not** accept a `boardId` parameter alongside a `taskId`/`columnId` and check the parent; that is the exact shape that produced four cross-board IDORs. Helpers: `requireBoardAccess`, `requireColumnAccess`, `requireTaskAccess`. When a second client-supplied id is genuinely needed (moving a task to a target column), prove it with `requireColumnOnBoard(columnId, boardId)`.
 2. **Parse every input with Zod.** Client-data parameters are typed `unknown` on purpose and `.parse()`d at the top of the action — typing them as an input interface gives zero runtime safety across the Server Action boundary and misleads the reader. Schemas live in `lib/validations/`.
 3. **Never leak raw errors.** Every `catch` returns `toActionError(context, err, fallback)`, which `console.error`s the real error server-side and returns a sanitized string. Raw Prisma/Zod text must never reach the client.
 4. **`ActionResult<T> = { data: T } | { error: string }`** is the contract; annotate every action's return type. Activity logging goes through `logActivity()` — best-effort, never fails the mutation.
+5. **Every mutation calls `enforceRateLimit(user.id, bucket)` (`lib/rate-limit.ts`) right after its guard**, keyed by user id, so a failed guard never counts. The standard bucket is `mutation` (120 per minute); `invitationCreate` (10 per hour), `invitationAccept` (10 per 10 min) and `memberAdd` (20 per hour) replace it for actions that hand out or redeem access. Reads (`getBoardData`, `getActivityLogs`, `getInvitations`) and `signOut` are not limited. Over the limit it throws `RateLimitError`, a `PublicError`, so `toActionError` passes its message through. It **fails open**: a limiter error is logged, reported to Sentry (at most once per process every 5 minutes, tag `rateLimit: <bucket>`), and the call proceeds, so an outage such as a missing `rate_limits` table is visible without blocking users. A new limit goes in `RATE_LIMITS`.
 
 ### Data Access Pattern (Server Action)
 
@@ -191,6 +198,7 @@ import {
   EDITOR_ROLES,
   type ActionResult,
 } from '@/lib/auth/require-access';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { createTaskSchema } from '@/lib/validations/task';
 
 export async function createTask(input: unknown): Promise<ActionResult<Task>> {
@@ -198,6 +206,7 @@ export async function createTask(input: unknown): Promise<ActionResult<Task>> {
     const { columnId, title } = createTaskSchema.parse(input);
     // Board is derived from the column — the client cannot smuggle a foreign boardId.
     const { user, column } = await requireColumnAccess(columnId, EDITOR_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     const task = await prisma.task.create({
       data: { columnId, boardId: column.boardId, title, createdBy: user.id, position: /* … */ },
@@ -249,9 +258,13 @@ The datasource connection is supplied by the adapter (`DATABASE_URL`) and by `pr
 
 ### `analytics_events` — deliberately NOT published
 
-`analytics_events` (`lib/analytics/track.ts`) is the one table that intentionally does **not** follow the Realtime posture above: it is not published to `supabase_realtime` and has RLS on with no policy and no grants (deny-all over the Data API), because Prisma (the `postgres` owner, `BYPASSRLS`) is its only reader and writer — nothing subscribes to it. Two more deliberate choices, so a future edit doesn't "fix" them into consistency with the rest of the schema: `board_id` carries **no foreign key**, so a board deletion (which cascades `invitations`/`board_members`/`columns`/`tasks`) cannot erase a churned cohort's activation history; `user_id` is `ON DELETE SET NULL`, so an erasure request leaves the events intact but unattributable rather than deleting them.
+`analytics_events` (`lib/analytics/track.ts`) is, like `rate_limits` below, deliberately not published: it does **not** follow the Realtime posture above. It is not in `supabase_realtime` and has RLS on with no policy and no grants (deny-all over the Data API), because Prisma (the `postgres` owner, `BYPASSRLS`) is its only reader and writer — nothing subscribes to it. Two more deliberate choices, so a future edit doesn't "fix" them into consistency with the rest of the schema: `board_id` carries **no foreign key**, so a board deletion (which cascades `invitations`/`board_members`/`columns`/`tasks`) cannot erase a churned cohort's activation history; `user_id` is `ON DELETE SET NULL`, so an erasure request leaves the events intact but unattributable rather than deleting them.
 
 Two rules when adding an event: put its property keys in `EVENT_PROPERTY_KEYS` (`lib/analytics/events.ts`) — `trackEvent` picks against that allowlist at write time, so a key missing from it is silently dropped rather than persisted — and remember that `trackEvent` keeps a per-instance memo of `dedupe_key`s it has already written. The memo only skips provably redundant round-trips (the dashboard layout re-renders on every `revalidatePath` response, not just on navigation); the UNIQUE index on `dedupe_key` remains the actual correctness guarantee.
+
+### `rate_limits` — deliberately NOT published
+
+`rate_limits` (`lib/rate-limit.ts`) has the same posture as `analytics_events`: not published, RLS on with no policy and no grants, Prisma its only reader and writer, and only through `$queryRaw` (the atomic upsert-and-reset is raw SQL; the `RateLimit` model just keeps the table in the schema). One row per `(bucket, user_id)`, reset in place when its window lapses, so the table is bounded by users × buckets and needs no pruning. `user_id` carries **no foreign key** on purpose: an FK violation (a user acting before their `profiles` row exists) would make the fail-open limiter skip exactly that user (logged and reported to Sentry, but still skipped). `window_start` is `timestamptz`, unlike the repo's `TIMESTAMP(3)` convention, so window arithmetic against `now()` doesn't depend on the pooler's session time zone.
 
 ### Grants + RLS — the Data API barrier
 
@@ -267,7 +280,7 @@ The anon key ships in the browser bundle, so anyone can call the Data API, even 
 
 - `anon` holds no privilege on any `public` table or sequence.
 - `authenticated` holds `SELECT` on `tasks`, `columns`, `board_members` and `boards` (the Realtime tables) and nothing else.
-- RLS is on for every table and only `SELECT` policies exist. RLS with no policy (`invitations`, `analytics_events`, `_prisma_migrations`) is deny-all.
+- RLS is on for every table and only `SELECT` policies exist. RLS with no policy (`invitations`, `analytics_events`, `rate_limits`, `_prisma_migrations`) is deny-all.
 - `ALTER DEFAULT PRIVILEGES FOR ROLE postgres` makes migration-created tables start with no grants. Supabase keeps the old defaults `FOR ROLE supabase_admin`, which a migration can't change, so create tables only through migrations.
 
 When you add a table, enable RLS in the same migration and grant nothing. To publish it to Realtime, add `GRANT SELECT … TO authenticated` and a `SELECT` policy gated by `public.is_board_member(...)`, in a migration that sorts **after** the lockdown (the lockdown revokes grants made before it). Writes belong in Server Actions: a write grant or write policy reopens the path that skips Zod and the guards. A new `public` function is callable over `/rpc`, because Supabase's defaults still grant `EXECUTE` to `anon` and `authenticated` explicitly (`REVOKE … FROM PUBLIC` alone leaves those grants in place). Its migration should `REVOKE ALL ON FUNCTION … FROM PUBLIC, anon, authenticated` and then grant back only what a policy needs. The two existing functions keep those grants because they're harmless over `/rpc`: `is_board_member` only reports the caller's own membership, and `handle_new_user` only runs as a trigger.
@@ -285,8 +298,19 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 - `@supabase/ssr`, cookie-based. **Always `getUser()`** (server-verified) for authorization — never `getSession()`.
 - Route protection is **deny-by-default** in `proxy.ts`: only `PUBLIC_ROUTES` / `PUBLIC_ROUTE_PREFIXES` are open; everything else requires a session. Add a new dashboard route and it is protected automatically.
 - The signed-in bounce off `/login` and `/register` in `proxy.ts` only fires on document requests (`GET`/`HEAD`, via `isDocumentRequest`): a Server Action POSTs to the current URL, and an unconditional bounce would silently 307 that POST away before its body ever ran. Deny-by-default above is unaffected — it stays method-agnostic, and `test/proxy.test.ts` pins both.
-- The OAuth callback (`app/auth/callback/route.ts`) only accepts same-origin relative `next` targets (open-redirect guard).
+- `proxy.ts` sends a signed-out document request to `/login?next=<path+query>`, and the signed-in bounce off `/login` and `/register` honors a safe `next` (never another auth route). A Server Action POST gets no `next`.
+- **`sanitizeNext` (`lib/auth/redirects.ts`) is the single `next`-param guard**, used by `proxy.ts`, the OAuth callback (`app/auth/callback/route.ts`) and the login/register pages. It accepts same-origin relative paths only: control characters and backslashes are rejected outright, the rest is origin-checked by parsing it as a URL, and the parser's normalised path is what gets used. Never concatenate a raw `next` into a redirect.
+- Invite links expire 7 days after creation (`INVITATION_TTL_DAYS`; legacy rows with a null `expiresAt` lapse 7 days after `createdAt`). An invite bound to an `email` can only be accepted by a signed-in user whose email matches and has `email_confirmed_at` set (`lib/invitations.ts`). That proves ownership of the address **only while Supabase "Confirm email" is ON**; with it off, signup confirms immediately and anyone can register the invited address. Nothing in the UI sets `email` yet, so enable "Confirm email" before shipping bound invites.
 - Env vars are validated in `lib/env.ts`; server-only secrets are never `NEXT_PUBLIC_`.
+
+### Security headers & CSP
+
+- Static headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY`, HSTS, `Permissions-Policy`) live in `next.config.ts`. The **CSP is per request**: `proxy.ts` builds it with `lib/csp.ts`, sets it on the response, and forwards it plus an `x-nonce` header to the render. **Never add a CSP in `next.config.ts`** — a static header has no nonce, and two CSP headers are both enforced.
+- `script-src` is `'self'` + the request nonce + `'strict-dynamic'` (`'unsafe-eval'` in dev only). `style-src` keeps `'unsafe-inline'` with no nonce, on purpose: a nonce would void `'unsafe-inline'`, and sonner, Radix and `@hello-pangea/dnd` inject un-nonced `<style>` tags while SSR style attributes can't carry one. `connect-src` allows the Supabase origin over https and wss (Realtime). GitHub OAuth is a top-level navigation and needs no directive.
+- `connect-src` also gets the origin of `NEXT_PUBLIC_SENTRY_DSN` when set (origin only; a malformed DSN is ignored): the browser SDK posts straight to Sentry's ingest host, as `next.config.ts` sets no `tunnelRoute`. The same DSN yields the policy's `report-uri` (Sentry's security endpoint, `<origin><path prefix>/api/<projectId>/security/?sentry_key=<publicKey>`), emitted only when the origin, public key (`[A-Za-z0-9]+`) and project id (digits) all validate.
+- The root layout reads `headers()` for the nonce, so **every route renders dynamically**: a prerendered page carries no nonce and `'strict-dynamic'` would block its scripts. Don't opt a route back into static rendering.
+- **Mode: Report-Only.** `CSP_REPORT_ONLY = true` in `lib/csp.ts` selects the `Content-Security-Policy-Report-Only` header; `false` enforces it (and adds `upgrade-insecure-requests` in production). It ships Report-Only because no browser pass over every flow (auth, OAuth, board, drag-and-drop, Realtime, avatars) has been done. With a valid Sentry DSN, violations are reported to Sentry through `report-uri`; without one they show only in the browser console. Clickjacking stays covered by `X-Frame-Options: DENY`. `proxy.ts` strips client-sent CSP request headers before setting its own.
+- A new inline script or third-party origin must be added to the builder in `lib/csp.ts`; `test/csp.test.ts` pins the policy.
 
 ---
 
@@ -305,7 +329,7 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 ## Testing
 
 - Tests live anywhere as `*.{test,spec}.{ts,tsx}` (Vitest `include` is repo-wide, excluding `node_modules`/`.next`). Setup: `test/setup.ts`. The `@` alias resolves to the repo root, matching `tsconfig`.
-- Test behavior, not implementation: reducer transitions, hook side effects, validation schemas, pure utils. Mock Prisma via `vi.mock('@/lib/prisma')`.
+- Test behavior, not implementation: reducer transitions, hook side effects, validation schemas, pure utils. Mock Prisma via `vi.mock('@/lib/prisma')`. Action tests also stub `enforceRateLimit` (spread `importOriginal` so the real `RateLimitError` survives).
 - Don't test shadcn/Magic UI primitives, Next internals, or the Supabase SDK itself.
 - Highest-value targets: `boardReducer` (done), the action authorization branches, the Zod schemas, and the optimistic revert path.
 
@@ -315,7 +339,7 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 
 - `try/catch` every async op. Server Actions return `toActionError(...)`; components surface `{ error }` via `sonner` toasts and must not treat a failed load as an empty state.
 - `console.error` for logging (the `no-console` rule allows `warn`/`error`). Never expose raw DB errors.
-- **Sentry** (`@sentry/nextjs`): `toActionError` reports unexpected errors via `Sentry.captureException` (tag `action: context`) and flushes with `after()`; `PublicError` and `ZodError` are expected outcomes and are not sent. `app/error.tsx` and `app/global-error.tsx` call `captureException`; uncaught server errors go through `onRequestError`. The SDK is inert unless a DSN is set, and source maps are generated and uploaded only when `SENTRY_AUTH_TOKEN` is set. Collection limits (no cookies, request bodies, user info or invite tokens; request and response headers are allow-listed) live in `lib/sentry-options.ts` — don't loosen them, and don't turn the header allow-lists back into deny-lists.
+- **Sentry** (`@sentry/nextjs`): `toActionError` reports unexpected errors via `Sentry.captureException` (tag `action: context`) and flushes with `after()`; `PublicError` and `ZodError` (and so `RateLimitError`) are expected outcomes and are not sent; `enforceRateLimit` reports its own fail-open outages. `flushSentryAfterResponse` (`lib/sentry-flush.ts`) is the shared `after()` flush. `app/error.tsx` and `app/global-error.tsx` call `captureException`; uncaught server errors go through `onRequestError`. The SDK is inert unless a DSN is set, and source maps are generated and uploaded only when `SENTRY_AUTH_TOKEN` is set. Collection limits (no cookies, request bodies, user info or invite tokens; request and response headers are allow-listed) live in `lib/sentry-options.ts` — don't loosen them, and don't turn the header allow-lists back into deny-lists.
 
 ---
 
@@ -380,8 +404,8 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, `useRealtime`, the board header and connection indicator, the activity feed, the analytics event/dedupe helpers, `proxy`'s route-protection (incl. unknown routes passing through to the 404 when signed in), the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404 page, both error boundaries, the auth page titles and keyboard/screen-reader behaviour (column menu, card keys, field names, scroll structure, drag announcements, dialog focus return) are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, `useRealtime`, the board header and connection indicator, the activity feed, the analytics event/dedupe helpers, `proxy`'s route-protection (incl. unknown routes passing through to the 404 when signed in), login `next` handling and CSP headers, the CSP builder, the rate limiter, invite expiry/email binding, board-page metadata, the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404 page, both error boundaries, the auth page titles and keyboard/screen-reader behaviour (column menu, card keys, field names, scroll structure, drag announcements, dialog focus return) are covered; most Server Actions and components are not.
 - **Browser tab title doesn't follow a live rename** — it comes from `generateMetadata` in `app/(dashboard)/board/[boardId]/page.tsx`, which is server-rendered.
-- **No Content-Security-Policy** — needs a per-request nonce in `proxy.ts` (see the TODO in `next.config.ts`).
+- **CSP is Report-Only, not enforced** — flip `CSP_REPORT_ONLY` in `lib/csp.ts` after a browser pass over every flow finds no violations; see "Security headers & CSP".
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.
 - **`pnpm audit --prod` is not clean** — 2 high (`mysql2`, `deepmerge-ts`) remain, both pinned exactly by the Prisma 7 CLI. `prisma` is a devDependency that `--prod` reaches only through `@prisma/client`'s optional peer; the app never loads it at runtime. 7.10.0 is the newest 7.x (Prisma 8 is still in RC), so they stay until a Prisma release moves the pins. Don't paper over them with `overrides`.

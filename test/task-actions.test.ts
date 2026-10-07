@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import type * as RateLimitModule from '@/lib/rate-limit';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    task: { findUnique: vi.fn(), aggregate: vi.fn(), update: vi.fn() },
+    task: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      aggregate: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
     column: { findUnique: vi.fn() },
     boardMember: { findFirst: vi.fn() },
     activityLog: { create: vi.fn() },
@@ -12,10 +19,15 @@ vi.mock('@/lib/prisma', () => ({
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/rate-limit', async (importOriginal) => ({
+  ...(await importOriginal<typeof RateLimitModule>()),
+  enforceRateLimit: vi.fn(async () => {}),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
-import { updateTask } from '@/app/actions/task-actions';
+import { RateLimitError, enforceRateLimit } from '@/lib/rate-limit';
+import { createTask, moveTask, updateTask } from '@/app/actions/task-actions';
 
 // Valid UUIDs — the action `uuidSchema.parse()`s every client-supplied id.
 const BOARD_A = '11111111-1111-4111-8111-111111111111';
@@ -31,7 +43,7 @@ const CREATED_AT = new Date('2026-01-01T00:00:00.000Z');
 // The real Prisma return types are structurally huge and irrelevant to these
 // authorization/positioning tests, so drive the mocks through a permissive handle.
 const db = prisma as unknown as {
-  task: { findUnique: Mock; aggregate: Mock; update: Mock };
+  task: { findUnique: Mock; findMany: Mock; aggregate: Mock; create: Mock; update: Mock };
   column: { findUnique: Mock };
   boardMember: { findFirst: Mock };
   activityLog: { create: Mock };
@@ -181,5 +193,71 @@ describe('updateTask', () => {
     expect(result).toEqual({ error: 'Column not found' });
     expect(db.task.aggregate).not.toHaveBeenCalled();
     expect(db.task.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('rate limiting', () => {
+  const mockedEnforce = vi.mocked(enforceRateLimit);
+
+  const MOVE_INPUT = { taskId: TASK_ID, targetColumnId: DONE_COLUMN, targetIndex: 0 };
+  const CREATE_INPUT = { columnId: TODO_COLUMN, title: 'New task' };
+
+  beforeEach(() => {
+    // toActionError logs the real error server-side; keep the test output clean.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.column.findUnique.mockResolvedValue(makeColumn());
+    db.task.findMany.mockResolvedValue([]);
+    db.task.aggregate.mockResolvedValue({ _max: { position: 1000 } });
+    db.task.create.mockResolvedValue({ ...makeTask(), assignee: null, creator: null });
+  });
+
+  it("moveTask counts one call against the user's mutation bucket", async () => {
+    const result = await moveTask(MOVE_INPUT);
+
+    expect(result.error).toBeUndefined();
+    expect(mockedEnforce).toHaveBeenCalledTimes(1);
+    expect(mockedEnforce).toHaveBeenCalledWith(USER_ID, 'mutation');
+    expect(db.task.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('moveTask returns the limiter message and writes nothing when over the limit', async () => {
+    mockedEnforce.mockRejectedValueOnce(new RateLimitError(10));
+
+    const result = await moveTask(MOVE_INPUT);
+
+    expect(result).toEqual({ error: 'Too many requests, try again in 10s' });
+    expect(db.task.update).not.toHaveBeenCalled();
+    expect(db.activityLog.create).not.toHaveBeenCalled();
+  });
+
+  it("createTask counts one call against the user's mutation bucket", async () => {
+    const result = await createTask(CREATE_INPUT);
+
+    expect(result.error).toBeUndefined();
+    expect(mockedEnforce).toHaveBeenCalledTimes(1);
+    expect(mockedEnforce).toHaveBeenCalledWith(USER_ID, 'mutation');
+    expect(db.task.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('createTask returns the limiter message and writes nothing when over the limit', async () => {
+    mockedEnforce.mockRejectedValueOnce(new RateLimitError(10));
+
+    const result = await createTask(CREATE_INPUT);
+
+    expect(result).toEqual({ error: 'Too many requests, try again in 10s' });
+    expect(db.task.create).not.toHaveBeenCalled();
+    expect(db.activityLog.create).not.toHaveBeenCalled();
+  });
+
+  it('does not touch the limiter when the caller is signed out', async () => {
+    mockedCreateClient.mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      },
+    });
+
+    expect(await moveTask(MOVE_INPUT)).toEqual({ error: 'Unauthorized' });
+    expect(await createTask(CREATE_INPUT)).toEqual({ error: 'Unauthorized' });
+    expect(mockedEnforce).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { headers } from 'next/headers';
 import { ThemeProvider } from 'next-themes';
 
 import { Toaster } from '@/components/ui/sonner';
+import { NONCE_HEADER } from '@/lib/csp';
 
 import './globals.css';
 
@@ -25,11 +27,16 @@ export const metadata: Metadata = {
     'Real-time collaborative project management. Drag, drop, and ship faster with your team.',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Reading the request renders every route per request — required, because a
+  // prerendered page carries no nonce and 'strict-dynamic' would block its scripts.
+  const nonce = (await headers()).get(NONCE_HEADER) ?? undefined;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ThemeProvider
+          nonce={nonce}
           attribute="class"
           defaultTheme="system"
           enableSystem

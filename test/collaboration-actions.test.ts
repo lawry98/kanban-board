@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import type * as RateLimitModule from '@/lib/rate-limit';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -21,9 +22,14 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
+vi.mock('@/lib/rate-limit', async (importOriginal) => ({
+  ...(await importOriginal<typeof RateLimitModule>()),
+  enforceRateLimit: vi.fn(async () => {}),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
+import { RateLimitError, enforceRateLimit } from '@/lib/rate-limit';
 import {
   acceptInvitation,
   createInvitation,
@@ -56,12 +62,18 @@ const db = prisma as unknown as {
   $transaction: Mock;
 };
 const mockedCreateClient = createClient as unknown as Mock;
+const mockedLimit = enforceRateLimit as unknown as Mock;
 
-function signInAs(id = USER_ID): void {
+const CONFIRMED_AT = '2026-01-01T00:00:00Z';
+
+/** Signs in a mocked user; `confirmed: false` models an unverified (no `email_confirmed_at`) address. */
+function signInAs(id = USER_ID, email = 'me@example.com', confirmed = true): void {
   mockedCreateClient.mockResolvedValue({
     auth: {
       getUser: vi.fn().mockResolvedValue({
-        data: { user: { id, email: 'me@example.com' } },
+        data: {
+          user: { id, email, email_confirmed_at: confirmed ? CONFIRMED_AT : undefined },
+        },
         error: null,
       }),
     },
@@ -76,7 +88,8 @@ function makeInvitation(overrides: Record<string, unknown> = {}) {
     token: 'tok_abc',
     email: null,
     invitedBy: USER_ID,
-    expiresAt: null,
+    // A future expiry: a null expiry with a 2026-01-01 createdAt is a lapsed legacy link.
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     revokedAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
@@ -106,13 +119,22 @@ function makeProfile(id: string, email: string) {
   };
 }
 
+// toActionError logs every rejection (expected PublicErrors included); keep that out of the
+// test output. Tests that assert on logging read this same spy.
+let errorSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   signInAs();
   // Default: run a $transaction callback against the same mocked client as `tx`.
   db.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
   db.activityLog.create.mockResolvedValue({});
   db.analyticsEvent.createMany.mockResolvedValue({ count: 1 });
+});
+
+afterEach(() => {
+  errorSpy.mockRestore();
 });
 
 describe('acceptInvitation', () => {
@@ -130,6 +152,20 @@ describe('acceptInvitation', () => {
   it('rejects an expired link', async () => {
     db.invitation.findUnique.mockResolvedValue(
       makeInvitation({ expiresAt: new Date(Date.now() - 60_000) }),
+    );
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: 'This invite link is no longer valid' });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a legacy null-expiry link created more than 7 days ago', async () => {
+    db.invitation.findUnique.mockResolvedValue(
+      makeInvitation({
+        expiresAt: null,
+        createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      }),
     );
 
     const result = await acceptInvitation('tok_abc');
@@ -177,7 +213,6 @@ describe('acceptInvitation', () => {
     db.invitation.findUnique.mockResolvedValue(makeInvitation({ role: 'OWNER' }));
     db.boardMember.findFirst.mockResolvedValue(null);
     db.boardMember.create.mockResolvedValue({ id: 'member-new' });
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const result = await acceptInvitation('tok_abc');
 
@@ -191,7 +226,6 @@ describe('acceptInvitation', () => {
       expect.objectContaining({ invitationId: INVITATION_ID, role: 'OWNER' }),
     );
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('tok_abc');
-    errorSpy.mockRestore();
   });
 
   it('still grants EDITOR from an EDITOR link', async () => {
@@ -289,6 +323,55 @@ describe('acceptInvitation', () => {
   });
 });
 
+describe('acceptInvitation — email-bound invites', () => {
+  const MISMATCH =
+    'This invite was sent to a different email address. Sign in with that account to join.';
+
+  it('rejects a different signed-in email without touching membership', async () => {
+    signInAs(USER_ID, 'bob@example.com');
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: MISMATCH });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+    // Checked before the existing-member shortcut: the answer can't depend on membership.
+    expect(db.boardMember.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('joins when the confirmed email matches case-insensitively', async () => {
+    signInAs(USER_ID, 'ANN@example.com');
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+    db.boardMember.findFirst.mockResolvedValue(null);
+    db.boardMember.create.mockResolvedValue({ id: 'member-new' });
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ data: { boardId: BOARD_A } });
+    expect(db.boardMember.create).toHaveBeenCalled();
+  });
+
+  it('rejects a matching but unconfirmed email', async () => {
+    signInAs(USER_ID, 'ann@example.com', false);
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: MISMATCH });
+    expect(db.boardMember.create).not.toHaveBeenCalled();
+  });
+
+  it('never echoes the bound address in the mismatch error', async () => {
+    signInAs(USER_ID, 'bob@example.com');
+    db.invitation.findUnique.mockResolvedValue(makeInvitation({ email: 'ann@example.com' }));
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result.error).toBeDefined();
+    expect(result.error).not.toContain('ann@example.com');
+  });
+});
+
 describe('revokeInvitation', () => {
   it('derives the board from the invitation row (anti-IDOR), not from any client id', async () => {
     // The invitation lives on BOARD_B; authorization must be checked against BOARD_B.
@@ -332,6 +415,25 @@ describe('createInvitation', () => {
     // Unguessable server-generated token, never client input.
     expect(typeof created.token).toBe('string');
     expect(created.token.length).toBeGreaterThan(16);
+  });
+
+  it('stamps expiresAt 7 days ahead', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
+      db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+      db.invitation.create.mockImplementation(
+        async ({ data }: { data: Record<string, unknown> }) => ({ id: INVITATION_ID, ...data }),
+      );
+
+      await createInvitation(BOARD_A, { role: 'EDITOR' });
+
+      expect(db.invitation.create.mock.calls[0][0].data.expiresAt).toEqual(
+        new Date('2026-10-13T12:00:00Z'),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects a non-owner caller before creating anything', async () => {
@@ -379,9 +481,10 @@ describe('getInvitations', () => {
     const where = db.invitation.findMany.mock.calls[0][0].where;
     expect(where.boardId).toBe(BOARD_A);
     expect(where.revokedAt).toBeNull();
-    // Expiry filter: null (never expires) OR still in the future.
+    // Expiry filter: still in the future, or a legacy null-expiry row inside its 7-day window.
     expect(Array.isArray(where.OR)).toBe(true);
-    expect(where.OR).toContainEqual({ expiresAt: null });
+    expect(where.OR).toContainEqual({ expiresAt: { gt: expect.any(Date) } });
+    expect(where.OR).toContainEqual({ expiresAt: null, createdAt: { gt: expect.any(Date) } });
   });
 });
 
@@ -523,5 +626,97 @@ describe('leaveBoard', () => {
     expect(db.activityLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'MEMBER_REMOVED' }) }),
     );
+  });
+});
+
+describe('rate limiting', () => {
+  const BLOCKED = 'Too many requests, try again in 10 min';
+
+  it('createInvitation spends the invitationCreate bucket and stops when blocked', async () => {
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+    db.invitation.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: INVITATION_ID, ...data }),
+    );
+
+    await createInvitation(BOARD_A, { role: 'EDITOR' });
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'invitationCreate');
+
+    db.invitation.create.mockClear();
+    mockedLimit.mockRejectedValueOnce(new RateLimitError(600));
+    const result = await createInvitation(BOARD_A, { role: 'EDITOR' });
+
+    expect(result).toEqual({ error: BLOCKED });
+    expect(db.invitation.create).not.toHaveBeenCalled();
+  });
+
+  it('acceptInvitation spends the invitationAccept bucket before looking the token up', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue({ id: 'member-existing' });
+
+    await acceptInvitation('tok_abc');
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'invitationAccept');
+
+    db.invitation.findUnique.mockClear();
+    mockedLimit.mockRejectedValueOnce(new RateLimitError(600));
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: BLOCKED });
+    expect(db.invitation.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('acceptInvitation does not touch the limiter when signed out', async () => {
+    mockedCreateClient.mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }) },
+    });
+
+    const result = await acceptInvitation('tok_abc');
+
+    expect(result).toEqual({ error: 'Unauthorized' });
+    expect(mockedLimit).not.toHaveBeenCalled();
+  });
+
+  it('never hands the invite token to the limiter', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue({ id: 'member-existing' });
+
+    await acceptInvitation('tok_abc');
+
+    expect(mockedLimit).toHaveBeenCalled();
+    expect(JSON.stringify(mockedLimit.mock.calls)).not.toContain('tok_abc');
+  });
+
+  it('revokeInvitation spends the shared mutation bucket', async () => {
+    db.invitation.findUnique.mockResolvedValue(makeInvitation());
+    db.boardMember.findFirst.mockResolvedValue(makeMember({ role: 'OWNER' }));
+    db.invitation.update.mockResolvedValue({});
+
+    await revokeInvitation(INVITATION_ID);
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'mutation');
+  });
+
+  it('addBoardMember spends the memberAdd bucket', async () => {
+    db.boardMember.findFirst.mockResolvedValueOnce(makeMember({ role: 'OWNER' }));
+    db.profile.findUnique.mockResolvedValue(null);
+
+    await addBoardMember(BOARD_A, { email: 'target@x.io', role: 'VIEWER' });
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'memberAdd');
+  });
+
+  it('removeBoardMember spends the shared mutation bucket', async () => {
+    db.boardMember.findFirst.mockResolvedValueOnce(makeMember({ role: 'OWNER' }));
+
+    await removeBoardMember(BOARD_A, TARGET_ID);
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'mutation');
+  });
+
+  it('changeMemberRole spends the shared mutation bucket', async () => {
+    db.boardMember.findFirst.mockResolvedValueOnce(makeMember({ role: 'OWNER' }));
+
+    await changeMemberRole(BOARD_A, TARGET_ID, { role: 'VIEWER' });
+
+    expect(mockedLimit).toHaveBeenCalledWith(USER_ID, 'mutation');
   });
 });

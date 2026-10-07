@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { format, formatDistanceToNowStrict } from 'date-fns';
 import { Check, Copy, Link2, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -30,6 +31,7 @@ import {
   revokeInvitation,
 } from '@/app/actions/invitation-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import { INVITATION_TTL_DAYS, effectiveExpiry } from '@/lib/invitations';
 import type { Invitation } from '@prisma/client';
 
 type LinkRole = 'EDITOR' | 'VIEWER';
@@ -173,6 +175,10 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
               </Button>
             </div>
 
+            <p className="text-muted-foreground text-xs">
+              Links expire after {INVITATION_TTL_DAYS} days.
+            </p>
+
             <div className="space-y-2">
               <Label className="text-muted-foreground text-xs">Active links</Label>
               {invitations === null ? (
@@ -183,51 +189,56 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
                 </p>
               ) : (
                 <ul className="space-y-2">
-                  {invitations.map((invitation) => (
-                    <li
-                      key={invitation.id}
-                      className="flex items-center gap-2 rounded-md border p-2"
-                    >
-                      <Badge variant="secondary" className="shrink-0 capitalize">
-                        {invitation.role.toLowerCase()}
-                      </Badge>
-                      <Input
-                        readOnly
-                        value={joinUrl(invitation.token)}
-                        className="h-8 flex-1 text-xs"
-                        onFocus={(e) => e.currentTarget.select()}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0"
-                        onClick={() => handleCopy(invitation)}
-                        aria-label="Copy invite link"
-                      >
-                        {copiedId === invitation.id ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive h-8 w-8 shrink-0"
-                        onClick={() => handleRevoke(invitation.id)}
-                        disabled={revoking === invitation.id}
-                        aria-label="Revoke invite link"
-                      >
-                        {revoking === invitation.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </li>
-                  ))}
+                  {invitations.map((invitation) => {
+                    const expiry = effectiveExpiry(invitation);
+                    return (
+                      <li key={invitation.id} className="flex flex-col gap-1 rounded-md border p-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="shrink-0 capitalize">
+                            {invitation.role.toLowerCase()}
+                          </Badge>
+                          <Input
+                            readOnly
+                            value={joinUrl(invitation.token)}
+                            className="h-8 flex-1 text-xs"
+                            onFocus={(e) => e.currentTarget.select()}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={() => handleCopy(invitation)}
+                            aria-label="Copy invite link"
+                          >
+                            {copiedId === invitation.id ? (
+                              <Check className="h-4 w-4" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive h-8 w-8 shrink-0"
+                            onClick={() => handleRevoke(invitation.id)}
+                            disabled={revoking === invitation.id}
+                            aria-label="Revoke invite link"
+                          >
+                            {revoking === invitation.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                        <p className="text-muted-foreground text-xs" title={format(expiry, 'PPpp')}>
+                          Expires {formatDistanceToNowStrict(expiry, { addSuffix: true })}
+                        </p>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

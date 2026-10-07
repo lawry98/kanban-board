@@ -14,6 +14,13 @@ import {
   requireBoardAccess,
   toActionError,
 } from '@/lib/auth/require-access';
+import {
+  activeInvitationWhere,
+  invitationEmailMatches,
+  invitationExpiry,
+  isInvitationActive,
+} from '@/lib/invitations';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { uuidSchema } from '@/lib/validations/board';
 import { createInvitationSchema, invitableRoleSchema } from '@/lib/validations/invitation';
 import { Prisma } from '@prisma/client';
@@ -22,13 +29,6 @@ import type { Invitation } from '@prisma/client';
 
 /** Length of the raw entropy behind an invite token, before base64url encoding. */
 const TOKEN_BYTES = 24;
-
-/** An invite is usable only while neither revoked nor past its expiry. */
-function isInvitationActive(invitation: Pick<Invitation, 'revokedAt' | 'expiresAt'>): boolean {
-  if (invitation.revokedAt) return false;
-  if (invitation.expiresAt && invitation.expiresAt.getTime() <= Date.now()) return false;
-  return true;
-}
 
 /**
  * Creates a shareable, revocable invite link scoped to a role. Owner-only.
@@ -42,6 +42,7 @@ export async function createInvitation(
   try {
     const id = uuidSchema.parse(boardId);
     const { user } = await requireBoardAccess(id, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'invitationCreate');
     const { role, email } = createInvitationSchema.parse(input);
 
     const invitation = await prisma.invitation.create({
@@ -51,6 +52,7 @@ export async function createInvitation(
         email: email ?? null,
         token: randomBytes(TOKEN_BYTES).toString('base64url'),
         invitedBy: user.id,
+        expiresAt: invitationExpiry(),
       },
     });
 
@@ -75,11 +77,7 @@ export async function getInvitations(boardId: string): Promise<ActionResult<Invi
     await requireBoardAccess(id, OWNER_ROLES);
 
     const invitations = await prisma.invitation.findMany({
-      where: {
-        boardId: id,
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-      },
+      where: { boardId: id, ...activeInvitationWhere() },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -103,7 +101,8 @@ export async function revokeInvitation(
     const invitation = await prisma.invitation.findUnique({ where: { id } });
     if (!invitation) throw new PublicError('Invite link not found');
 
-    await requireBoardAccess(invitation.boardId, OWNER_ROLES);
+    const { user } = await requireBoardAccess(invitation.boardId, OWNER_ROLES);
+    await enforceRateLimit(user.id, 'mutation');
 
     await prisma.invitation.update({ where: { id }, data: { revokedAt: new Date() } });
 
@@ -127,10 +126,20 @@ export async function acceptInvitation(token: unknown): Promise<ActionResult<{ b
     }
 
     const user = await requireAuth();
+    // Before the token lookup, so guessing tokens is throttled per user, not just per row.
+    await enforceRateLimit(user.id, 'invitationAccept');
 
     const invitation = await prisma.invitation.findUnique({ where: { token } });
     if (!invitation || !isInvitationActive(invitation)) {
       throw new PublicError('This invite link is no longer valid');
+    }
+
+    // A bound invite is for one person, not whoever holds the link. Checked before
+    // the existing-member shortcut so the answer doesn't depend on membership.
+    if (!invitationEmailMatches(invitation.email, user)) {
+      throw new PublicError(
+        'This invite was sent to a different email address. Sign in with that account to join.',
+      );
     }
 
     // Re-check the stored role: a row written around createInvitation (e.g. via

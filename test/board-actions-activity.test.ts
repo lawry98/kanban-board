@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import type * as RateLimitModule from '@/lib/rate-limit';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -12,6 +13,10 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
+vi.mock('@/lib/rate-limit', async (importOriginal) => ({
+  ...(await importOriginal<typeof RateLimitModule>()),
+  enforceRateLimit: vi.fn(async () => {}),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';

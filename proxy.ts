@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 
-import { ROUTES } from '@/lib/auth/redirects';
+import { DEFAULT_REDIRECT, ROUTES, sanitizeNext } from '@/lib/auth/redirects';
+import {
+  CSP_HEADER,
+  CSP_REPORT_ONLY,
+  NONCE_HEADER,
+  buildContentSecurityPolicy,
+  generateNonce,
+} from '@/lib/csp';
+import { env } from '@/lib/env';
 import { updateSession } from '@/lib/supabase/middleware';
 
 import type { NextRequest } from 'next/server';
@@ -31,7 +39,7 @@ export const PUBLIC_ROUTE_PREFIXES = ['/auth/', '/join/'] as const;
 export const AUTH_ROUTES = [ROUTES.login, ROUTES.register] as const;
 
 /** Where authenticated users land when they hit an auth route. */
-export const DEFAULT_AUTHENTICATED_ROUTE = ROUTES.boards;
+export const DEFAULT_AUTHENTICATED_ROUTE = DEFAULT_REDIRECT;
 
 /** Where unauthenticated users are sent when they hit a protected route. */
 export const LOGIN_ROUTE = ROUTES.login;
@@ -67,12 +75,55 @@ function redirectWithCookies(source: NextResponse, url: URL): NextResponse {
   return redirect;
 }
 
+/** Login URL for a signed-out visitor, remembering where a navigation was headed. */
+function loginUrl(request: NextRequest): URL {
+  const url = new URL(LOGIN_ROUTE, request.url);
+  // Only a navigation can come back here: a Server Action POST is a fetch the
+  // browser never lands on. Path + query only — never the origin.
+  if (isDocumentRequest(request.method)) {
+    const { pathname, search } = request.nextUrl;
+    const next = sanitizeNext(pathname + search);
+    if (next !== DEFAULT_REDIRECT) url.searchParams.set('next', next);
+  }
+  return url;
+}
+
+/** Where a signed-in visitor to /login or /register goes: their `next`, if safe. */
+function postLoginUrl(request: NextRequest): URL {
+  const target = new URL(sanitizeNext(request.nextUrl.searchParams.get('next')), request.url);
+  return isAuthRoute(target.pathname) ? new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url) : target;
+}
+
+/** Every response the proxy returns carries the policy — redirects included. */
+function withCsp(response: NextResponse, csp: string): NextResponse {
+  response.headers.set(CSP_HEADER, csp);
+  return response;
+}
+
 export async function proxy(request: NextRequest) {
-  const { response, user } = await updateSession(request);
+  const nonce = generateNonce();
+  const csp = buildContentSecurityPolicy({
+    nonce,
+    supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
+    isDev: process.env.NODE_ENV === 'development',
+    reportOnly: CSP_REPORT_ONLY,
+    sentryDsn: env.NEXT_PUBLIC_SENTRY_DSN,
+  });
+
+  // Next reads the nonce from `content-security-policy || content-security-policy-report-only`
+  // on the request, so drop both client-sent values first: whichever name we don't set below
+  // must not survive and win that lookup.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete('content-security-policy');
+  requestHeaders.delete('content-security-policy-report-only');
+  requestHeaders.set(NONCE_HEADER, nonce);
+  requestHeaders.set(CSP_HEADER, csp);
+
+  const { response, user } = await updateSession(request, requestHeaders);
   const { pathname } = request.nextUrl;
 
   if (!user && !isPublicRoute(pathname)) {
-    return redirectWithCookies(response, new URL(LOGIN_ROUTE, request.url));
+    return withCsp(redirectWithCookies(response, loginUrl(request)), csp);
   }
 
   // Only bounce document requests (GET/HEAD) away from auth routes. A Server Action
@@ -82,10 +133,10 @@ export async function proxy(request: NextRequest) {
   // signed_up analytics emission — never runs. Redirecting a POST to a GET target
   // is meaningless anyway, so gating on method loses nothing.
   if (user && isAuthRoute(pathname) && isDocumentRequest(request.method)) {
-    return redirectWithCookies(response, new URL(DEFAULT_AUTHENTICATED_ROUTE, request.url));
+    return withCsp(redirectWithCookies(response, postLoginUrl(request)), csp);
   }
 
-  return response;
+  return withCsp(response, csp);
 }
 
 export const config = {
