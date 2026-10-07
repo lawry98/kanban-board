@@ -323,6 +323,7 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 - Mobile-first; `dark:` variants; avoid arbitrary values (`[123px]`) unless there's no token.
 - **Keyboard + screen reader:** a new or changed control must be reachable by Tab and have an accessible name (tests query `getByRole(…, { name })`). Cards: Enter opens (everyone), Space drags (editors) / opens on keyup (viewers). Drag announcements come from `lib/drag-announcements.ts` — never let dnd read raw ids.
 - **Dialog focus return:** a dialog opened without a `DialogTrigger` (from a card, a menu item, a confirm, a button elsewhere) must return focus in `onCloseAutoFocus`: `event.preventDefault()` then `focusById(...)` from `lib/dom-ids.ts`. Radix otherwise has no trigger to refocus and drops focus on `<body>`. The one exception is `ActivityFeed`, whose opener is the header's id-less Activity button: it records `document.activeElement` in `onOpenAutoFocus` (which runs before Radix moves focus) and refocuses that.
+- **Viewers read, they don't edit:** give a viewer's text fields `readOnly`, not `disabled`, so Tab reaches them and they read at full contrast; drop `required` and inviting placeholders with it.
 - **Toasts:** `<Toaster>` in `app/layout.tsx` has no `richColors`; sonner's light-mode error/success text is under 4.5:1. The type icons carry the meaning.
 
 ---
