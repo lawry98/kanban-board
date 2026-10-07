@@ -1,9 +1,8 @@
-import { after } from 'next/server';
-
 import * as Sentry from '@sentry/nextjs';
 import { ZodError } from 'zod';
 
 import { prisma } from '@/lib/prisma';
+import { flushSentryAfterResponse } from '@/lib/sentry-flush';
 import { createClient } from '@/lib/supabase/server';
 import type { BoardMember, Column, Prisma, Role, Task } from '@prisma/client';
 import type { User } from '@supabase/supabase-js';
@@ -57,15 +56,7 @@ export function toActionError(
 
 function reportUnexpected(context: string, error: unknown): void {
   Sentry.captureException(error, { tags: { action: context } });
-  // On serverless the function may freeze once the response is sent, before the SDK's
-  // background send completes; `after` keeps it alive until the flush settles. Skipped when
-  // Sentry is inert (no client) and outside a request scope (scripts, tests), where `after` throws.
-  if (!Sentry.getClient()) return;
-  try {
-    after(() => Sentry.flush(2000));
-  } catch {
-    // Not in a request scope — nothing to keep alive.
-  }
+  flushSentryAfterResponse();
 }
 
 // ─── Role sets ────────────────────────────────────────────────────────────────

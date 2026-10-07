@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { trackEvent } from '@/lib/analytics/track';
+import { isInvitationActive } from '@/lib/invitations';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
 
@@ -15,12 +16,6 @@ export const metadata: Metadata = {
 
 interface JoinPageProps {
   params: Promise<{ token: string }>;
-}
-
-function isActive(invitation: { revokedAt: Date | null; expiresAt: Date | null }): boolean {
-  if (invitation.revokedAt) return false;
-  if (invitation.expiresAt && invitation.expiresAt.getTime() <= Date.now()) return false;
-  return true;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -49,7 +44,7 @@ export default async function JoinPage({ params }: JoinPageProps) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const linkActive = invitation !== null && isActive(invitation);
+  const linkActive = invitation !== null && isInvitationActive(invitation);
 
   // The only pre-auth event in the app, and the denominator for invite conversion.
   // ACCEPTED TRADEOFF: this fires during a server render, so RSC prefetches and

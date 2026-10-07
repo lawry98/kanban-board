@@ -3,6 +3,7 @@
 import { trackEvent } from '@/lib/analytics/track';
 import { signedUpKey } from '@/lib/analytics/events';
 import { requireAuth, toActionError } from '@/lib/auth/require-access';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { trackSignedUpSchema } from '@/lib/validations/analytics';
 
 import type { ActionResult } from '@/lib/auth/require-access';
@@ -20,6 +21,7 @@ import type { ActionResult } from '@/lib/auth/require-access';
 export async function trackSignedUp(input: unknown): Promise<ActionResult<true>> {
   try {
     const user = await requireAuth();
+    await enforceRateLimit(user.id, 'mutation');
     const { method, fromInvite } = trackSignedUpSchema.parse(input);
 
     await trackEvent({

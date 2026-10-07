@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -121,5 +121,47 @@ describe('ShareBoardDialog — add by email', () => {
     );
     expect(memberNames()).toEqual(['Olive Owner']);
     expect(screen.getByLabelText('Email')).toHaveValue('nobody@example.com');
+  });
+});
+
+describe('ShareBoardDialog — invite link expiry', () => {
+  const NOW = new Date('2026-10-06T12:00:00.000Z');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Only Date is faked: timers and promises keep running, so waitFor still works.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('states the link lifetime and shows when each link expires', async () => {
+    getInvitations.mockResolvedValue({
+      data: [
+        {
+          id: 'inv-1',
+          boardId: 'board-1',
+          role: 'EDITOR',
+          token: 'tok_abc',
+          email: null,
+          invitedBy: 'user-1',
+          expiresAt: new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000),
+          revokedAt: null,
+          createdAt: NOW,
+        },
+      ],
+    });
+
+    render(
+      <BoardProvider board={board} currentUserId="user-1" userRole="OWNER">
+        <ShareBoardDialog boardId="board-1" open onOpenChange={vi.fn()} />
+      </BoardProvider>,
+    );
+
+    expect(await screen.findByText('Expires in 7 days')).toBeInTheDocument();
+    expect(screen.getByText('Links expire after 7 days.')).toBeInTheDocument();
   });
 });

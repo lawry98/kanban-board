@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 // `proxy` only needs `updateSession`'s `{ response, user }` result — mock it so no
 // real Supabase SSR client, cookies, or network round-trip is involved, matching the
 // mocking style used for `createClient` in `test/auth-callback-route.test.ts`.
 vi.mock('@/lib/supabase/middleware', () => ({ updateSession: vi.fn() }));
+// `proxy` reads the Supabase origin from validated env to build the CSP; the real
+// `@/lib/env` throws on import without the full environment.
+// Hoisted and mutable so a test can switch the Sentry DSN on.
+const mockEnv = vi.hoisted(() => ({
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: 'https://abcd.supabase.co',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+    NEXT_PUBLIC_SENTRY_DSN: undefined as string | undefined,
+  },
+}));
+vi.mock('@/lib/env', () => mockEnv);
 
+import { CSP_HEADER } from '@/lib/csp';
 import { updateSession } from '@/lib/supabase/middleware';
 import { proxy } from '@/proxy';
 
@@ -92,5 +104,232 @@ describe('proxy', () => {
       const res = await proxy(request(path, 'GET'));
       expect(res.headers.get('location')).toBeNull();
     }
+  });
+});
+
+const nextParam = (res: Response) => new URL(res.headers.get('location')!).searchParams.get('next');
+
+describe('proxy return-to-original-page (next)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('remembers path and query when a signed-out GET is sent to /login', async () => {
+    stubSession(null);
+    const res = await proxy(request('/board/abc?tab=1', 'GET'));
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
+    expect(nextParam(res)).toBe('/board/abc?tab=1');
+  });
+
+  it('remembers the destination on a signed-out HEAD, like GET', async () => {
+    stubSession(null);
+    const res = await proxy(request('/board/abc', 'HEAD'));
+    expect(nextParam(res)).toBe('/board/abc');
+  });
+
+  it('adds no next for /boards — it is already the default destination', async () => {
+    stubSession(null);
+    const res = await proxy(request('/boards', 'GET'));
+    expect(location(res)).toBe('/login');
+  });
+
+  it('adds no next for a signed-out POST — a Server Action is never navigated back to', async () => {
+    stubSession(null);
+    const res = await proxy(request('/board/abc', 'POST'));
+    expect(location(res)).toBe('/login');
+  });
+
+  it('adds no next for a protocol-relative request path', async () => {
+    stubSession(null);
+    const res = await proxy(new NextRequest(`${ORIGIN}//evil.com`));
+    expect(location(res)).toBe('/login');
+  });
+
+  it('sends a signed-in visitor to /login or /register on to their next', async () => {
+    for (const path of ['/login', '/register']) {
+      stubSession(FAKE_USER);
+      const res = await proxy(request(`${path}?next=%2Fboard%2Fabc`, 'GET'));
+      expect(location(res)).toBe('/board/abc');
+    }
+  });
+
+  it('falls back to /boards, same origin, for an unsafe next on a signed-in bounce', async () => {
+    for (const unsafe of ['%2F%09%2Fevil.com', '%2F%2Fevil.com', 'https%3A%2F%2Fevil.com']) {
+      stubSession(FAKE_USER);
+      const res = await proxy(request(`/login?next=${unsafe}`, 'GET'));
+      const url = new URL(res.headers.get('location')!);
+      expect(url.origin).toBe(ORIGIN);
+      expect(url.pathname).toBe('/boards');
+    }
+  });
+
+  it('does not bounce a signed-in visitor back onto an auth page', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/login?next=%2Flogin', 'GET'));
+    expect(location(res)).toBe('/boards');
+  });
+
+  it('passes a signed-in POST to /login through untouched', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/login?next=%2Fboard%2Fabc', 'POST'));
+    expect(res).toBe(passthrough);
+  });
+
+  it('still sets the CSP on the new redirects', async () => {
+    stubSession(null);
+    const toLogin = await proxy(request('/board/abc?tab=1', 'GET'));
+    expect(nextParam(toLogin)).toBe('/board/abc?tab=1');
+    expect(toLogin.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
+
+    stubSession(FAKE_USER);
+    const bounced = await proxy(request('/login?next=%2Fboard%2Fabc', 'GET'));
+    expect(location(bounced)).toBe('/board/abc');
+    expect(bounced.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
+  });
+});
+
+describe('content security policy', () => {
+  const CSP_NAMES = new Set(['content-security-policy', 'content-security-policy-report-only']);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    mockEnv.env.NEXT_PUBLIC_SENTRY_DSN = undefined;
+  });
+
+  function connectSrc(res: Response): string[] {
+    const policy = res.headers.get(CSP_HEADER) ?? '';
+    const directive = policy.split(';').find((d) => d.trim().startsWith('connect-src'));
+    return directive?.trim().split(/\s+/).slice(1) ?? [];
+  }
+
+  function nonceIn(csp: string): string {
+    const match = /'nonce-([^']+)'/.exec(csp);
+    if (!match) throw new Error('expected a nonce in the CSP');
+    return match[1];
+  }
+
+  /** The request headers `proxy` handed to `updateSession` as its second argument. */
+  function forwardedHeaders(): Headers {
+    const headers = mockedUpdateSession.mock.calls[0][1];
+    expect(headers).toBeInstanceOf(Headers);
+    return headers as Headers;
+  }
+
+  it('sets a nonce + strict-dynamic policy on a passthrough response', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    const csp = res.headers.get(CSP_HEADER);
+    expect(csp).toContain("'strict-dynamic'");
+    expect(csp).toMatch(/'nonce-[^']+'/);
+    expect(res).toBe(passthrough);
+  });
+
+  it('forwards the same nonce and policy to the render as request headers', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    const csp = res.headers.get(CSP_HEADER) ?? '';
+    const forwarded = forwardedHeaders();
+    expect(forwarded.get('x-nonce')).toBe(nonceIn(csp));
+    expect(forwarded.get(CSP_HEADER)).toBe(csp);
+  });
+
+  it('sets the policy on a redirect too', async () => {
+    stubSession(null);
+    const res = await proxy(request('/boards', 'GET'));
+    expect(location(res)).toBe('/login');
+    expect(res.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
+  });
+
+  it('uses a different nonce for every request', async () => {
+    stubSession(FAKE_USER);
+    const first = await proxy(request('/boards'));
+    stubSession(FAKE_USER);
+    const second = await proxy(request('/boards'));
+    expect(nonceIn(first.headers.get(CSP_HEADER) ?? '')).not.toBe(
+      nonceIn(second.headers.get(CSP_HEADER) ?? ''),
+    );
+  });
+
+  it('overwrites a client-supplied x-nonce header', async () => {
+    stubSession(FAKE_USER);
+    const req = new NextRequest(new URL('/boards', ORIGIN), { headers: { 'x-nonce': 'attacker' } });
+    const res = await proxy(req);
+    const forwarded = forwardedHeaders();
+    expect(forwarded.get('x-nonce')).not.toBe('attacker');
+    expect(forwarded.get('x-nonce')).toBe(nonceIn(res.headers.get(CSP_HEADER) ?? ''));
+  });
+
+  it('allows only the Sentry DSN origin in connect-src and reports violations to Sentry when NEXT_PUBLIC_SENTRY_DSN is set', async () => {
+    mockEnv.env.NEXT_PUBLIC_SENTRY_DSN = 'https://0123456789abcdef@o123.ingest.us.sentry.io/456';
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    expect(connectSrc(res)).toEqual([
+      "'self'",
+      'https://abcd.supabase.co',
+      'wss://abcd.supabase.co',
+      'https://o123.ingest.us.sentry.io',
+    ]);
+    // The public key appears only in the report-uri endpoint, never in connect-src.
+    expect(connectSrc(res).join(' ')).not.toContain('0123456789abcdef');
+    expect(res.headers.get(CSP_HEADER)).toContain(
+      'report-uri https://o123.ingest.us.sentry.io/api/456/security/?sentry_key=0123456789abcdef',
+    );
+  });
+
+  it('adds nothing to connect-src and no report-uri without a DSN', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    expect(connectSrc(res)).toEqual([
+      "'self'",
+      'https://abcd.supabase.co',
+      'wss://abcd.supabase.co',
+    ]);
+    expect(res.headers.get(CSP_HEADER)).not.toContain('report-uri');
+  });
+
+  it('survives a malformed DSN, still setting the policy', async () => {
+    mockEnv.env.NEXT_PUBLIC_SENTRY_DSN = 'javascript:alert(1)';
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/boards'));
+    expect(connectSrc(res)).toEqual([
+      "'self'",
+      'https://abcd.supabase.co',
+      'wss://abcd.supabase.co',
+    ]);
+    expect(res.headers.get(CSP_HEADER)).not.toContain('report-uri');
+  });
+
+  it('sets the policy on the signed-in bounce off an auth route', async () => {
+    stubSession(FAKE_USER);
+    const res = await proxy(request('/register', 'GET'));
+    expect(location(res)).toBe('/boards');
+    expect(res.headers.get(CSP_HEADER)).toContain("'strict-dynamic'");
+  });
+
+  // Next takes the nonce from `content-security-policy || content-security-policy-report-only`
+  // on the request, so a client-sent header of either name must never reach it.
+  it('drops client-sent CSP request headers so only the server policy is forwarded', async () => {
+    stubSession(FAKE_USER);
+    const req = new NextRequest(new URL('/boards', ORIGIN), {
+      headers: {
+        'content-security-policy': "script-src 'nonce-attacker'",
+        'content-security-policy-report-only': "script-src 'nonce-attacker'",
+      },
+    });
+    const res = await proxy(req);
+    const csp = res.headers.get(CSP_HEADER) ?? '';
+    const forwarded = forwardedHeaders();
+
+    const forwardedPolicy = forwarded.get(CSP_HEADER) ?? '';
+    expect(forwardedPolicy).toBe(csp);
+    expect(forwardedPolicy).not.toContain('attacker');
+    expect(nonceIn(forwardedPolicy)).toBe(forwarded.get('x-nonce'));
+
+    // The header name that is not in use must be absent, not left as the client's value.
+    const unused = [...CSP_NAMES].find((name) => name !== CSP_HEADER.toLowerCase());
+    expect(forwarded.get(unused ?? '')).toBeNull();
   });
 });
