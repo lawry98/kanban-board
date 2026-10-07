@@ -70,7 +70,7 @@ lib/
 ├── sentry-flush.ts               # `flushSentryAfterResponse`: keeps a serverless function alive for Sentry's send
 ├── dates.ts                      # Due-date (calendar day) parse/format/isOverdue — pure, no I/O
 ├── drag-announcements.ts         # Screen-reader drag messages + drag-handle instructions — pure, no I/O
-├── dom-ids.ts                    # Ids a closing dialog returns focus to (card, column menu) + focusById
+├── dom-ids.ts                    # Ids a closing dialog returns focus to (card, column menu, new-board buttons) + focusById
 ├── invitations.ts                # Invite TTL, expiry and email-binding checks — pure, no I/O
 ├── rate-limit.ts                 # Postgres fixed-window limiter (`enforceRateLimit`); fails open
 ├── csp.ts                        # Per-request nonce Content-Security-Policy builder — pure
@@ -322,7 +322,7 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 - Always merge classes with `cn()` (`@/lib/utils`); use `cva` for variants.
 - Mobile-first; `dark:` variants; avoid arbitrary values (`[123px]`) unless there's no token.
 - **Keyboard + screen reader:** a new or changed control must be reachable by Tab and have an accessible name (tests query `getByRole(…, { name })`). Cards: Enter opens (everyone), Space drags (editors) / opens on keyup (viewers). Drag announcements come from `lib/drag-announcements.ts` — never let dnd read raw ids.
-- **Dialog focus return:** a dialog opened without a `DialogTrigger` (from a card, a menu item, a confirm) must return focus in `onCloseAutoFocus`: `event.preventDefault()` then `focusById(...)` from `lib/dom-ids.ts`. Radix otherwise has no trigger to refocus and drops focus on `<body>`.
+- **Dialog focus return:** a dialog opened without a `DialogTrigger` (from a card, a menu item, a confirm, a button elsewhere) must return focus in `onCloseAutoFocus`: `event.preventDefault()` then `focusById(...)` from `lib/dom-ids.ts`. Radix otherwise has no trigger to refocus and drops focus on `<body>`. The one exception is `ActivityFeed`, whose opener is the header's id-less Activity button: it records `document.activeElement` in `onOpenAutoFocus` (which runs before Radix moves focus) and refocuses that.
 
 ---
 

@@ -17,13 +17,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { createBoard } from '@/app/actions/board-actions';
+import { focusById } from '@/lib/dom-ids';
 
 interface CreateBoardDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Id of the button that opened the dialog: focus goes back to it on close. */
+  returnFocusId: string;
 }
 
-export function CreateBoardDialog({ open, onOpenChange }: CreateBoardDialogProps) {
+export function CreateBoardDialog({ open, onOpenChange, returnFocusId }: CreateBoardDialogProps) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -54,7 +57,13 @@ export function CreateBoardDialog({ open, onOpenChange }: CreateBoardDialogProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusById(returnFocusId);
+        }}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>Create board</DialogTitle>

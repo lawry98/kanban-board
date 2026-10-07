@@ -11,6 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { CreateBoardDialog } from '@/components/board/create-board-dialog';
+import {
+  CREATE_FIRST_BOARD_BUTTON_ID,
+  NEW_BOARD_BUTTON_ID,
+  NEW_BOARD_CARD_ID,
+} from '@/lib/dom-ids';
 import { cn } from '@/lib/utils';
 import type { BoardWithMembers } from '@/types';
 
@@ -20,6 +25,13 @@ interface BoardsClientProps {
 
 export function BoardsClient({ boards }: BoardsClientProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Outlives the open state: the dialog reads it as it closes.
+  const [openerId, setOpenerId] = useState(NEW_BOARD_BUTTON_ID);
+
+  function openDialog(id: string) {
+    setOpenerId(id);
+    setDialogOpen(true);
+  }
 
   return (
     <div className="mx-auto max-w-screen-xl px-4 py-8 sm:px-6 lg:px-8">
@@ -32,7 +44,7 @@ export function BoardsClient({ boards }: BoardsClientProps) {
               : `${boards.length} board${boards.length === 1 ? '' : 's'}`}
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
+        <Button id={NEW_BOARD_BUTTON_ID} onClick={() => openDialog(NEW_BOARD_BUTTON_ID)}>
           <Plus className="mr-2 h-4 w-4" />
           New board
         </Button>
@@ -46,7 +58,10 @@ export function BoardsClient({ boards }: BoardsClientProps) {
             <p className="text-muted-foreground mt-1 mb-6 text-sm">
               Create your first board to start organizing tasks with your team.
             </p>
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button
+              id={CREATE_FIRST_BOARD_BUTTON_ID}
+              onClick={() => openDialog(CREATE_FIRST_BOARD_BUTTON_ID)}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Create your first board
             </Button>
@@ -139,7 +154,8 @@ export function BoardsClient({ boards }: BoardsClientProps) {
           {/* Create board card */}
           <BlurFade delay={0.05 * boards.length}>
             <button
-              onClick={() => setDialogOpen(true)}
+              id={NEW_BOARD_CARD_ID}
+              onClick={() => openDialog(NEW_BOARD_CARD_ID)}
               className="text-muted-foreground hover:border-foreground/30 hover:text-foreground flex h-full min-h-[140px] w-full items-center justify-center rounded-lg border border-dashed transition-colors"
             >
               <div className="flex flex-col items-center gap-2">
@@ -151,7 +167,7 @@ export function BoardsClient({ boards }: BoardsClientProps) {
         </div>
       )}
 
-      <CreateBoardDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <CreateBoardDialog open={dialogOpen} onOpenChange={setDialogOpen} returnFocusId={openerId} />
     </div>
   );
 }

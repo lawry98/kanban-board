@@ -5,17 +5,19 @@ import userEvent from '@testing-library/user-event';
 
 import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
 
-const { updateTask, deleteTask, toastError, toastSuccess } = vi.hoisted(() => ({
+const { updateTask, deleteTask, getActivityLogs, toastError, toastSuccess } = vi.hoisted(() => ({
   updateTask: vi.fn(),
   deleteTask: vi.fn(),
+  getActivityLogs: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({ toast: { error: toastError, success: toastSuccess } }));
-vi.mock('@/app/actions/task-actions', () => ({ updateTask, deleteTask }));
+vi.mock('@/app/actions/task-actions', () => ({ updateTask, deleteTask, getActivityLogs }));
 vi.mock('@/contexts/board-context', () => ({ useBoardContext: vi.fn() }));
 
+import { ActivityFeed } from '@/components/board/activity-feed';
 import { TaskDetailDialog } from '@/components/board/task-detail-dialog';
 import { useBoardContext } from '@/contexts/board-context';
 import { columnActionsId, taskCardId } from '@/lib/dom-ids';
@@ -294,5 +296,45 @@ describe('TaskDetailDialog when a request rejects', () => {
     expect(toastSuccess).not.toHaveBeenCalled();
     await waitFor(() => expect(deleteButton).toHaveFocus());
     expect(screen.getByRole('dialog', { name: 'Task details' })).toBeInTheDocument();
+  });
+});
+
+/** Mirrors BoardView: the header's Activity button opens the sheet through a prop. */
+function ActivityBoard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Activity</button>
+      <ActivityFeed boardId="board-1" open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+describe('ActivityFeed returns focus', () => {
+  async function openActivity() {
+    getActivityLogs.mockResolvedValue({ data: [] });
+    const user = userEvent.setup();
+    render(<ActivityBoard />);
+    const opener = screen.getByRole('button', { name: 'Activity' });
+    opener.focus();
+    await user.keyboard('{Enter}');
+    await screen.findByText('No activity yet');
+    return { user, opener };
+  }
+
+  it('to the Activity button on Escape', async () => {
+    const { user, opener } = await openActivity();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it('to the Activity button after its Close button', async () => {
+    const { user, opener } = await openActivity();
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 });
