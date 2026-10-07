@@ -1,3 +1,5 @@
+import { withSentryConfig } from '@sentry/nextjs/config';
+
 import type { NextConfig } from 'next';
 
 const securityHeaders = [
@@ -52,4 +54,20 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Build-time Sentry options, all optional. Without SENTRY_AUTH_TOKEN no browser source maps are
+// generated and nothing is uploaded; the SDKs stay inert until a DSN is set (lib/env.ts).
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN || undefined;
+
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG || undefined,
+  project: process.env.SENTRY_PROJECT || undefined,
+  authToken: sentryAuthToken,
+  sourcemaps: { disable: !sentryAuthToken, deleteSourcemapsAfterUpload: true },
+  widenClientFileUpload: true,
+  silent: !process.env.CI,
+  telemetry: false,
+  // A Sentry outage or a bad token must not block a deploy: report and continue.
+  errorHandler: (err) => {
+    console.warn('Sentry build step failed (continuing):', err.message);
+  },
+});

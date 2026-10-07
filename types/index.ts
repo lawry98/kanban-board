@@ -9,7 +9,11 @@ export type {
 import type { ColumnWithTasks, BoardMemberWithProfile, TaskWithAssignee } from './board';
 import type { Board, Column } from '@prisma/client';
 
+/** Board-level fields the header renders; kept in reducer state so a realtime resync reaches them. */
+export type BoardMeta = Pick<Board, 'title' | 'description'>;
+
 export interface BoardState {
+  meta: BoardMeta;
   columns: ColumnWithTasks[];
   members: BoardMemberWithProfile[];
 }
@@ -39,4 +43,4 @@ export type BoardAction =
   | { type: 'UPDATE_MEMBER'; payload: BoardMemberWithProfile }
   | { type: 'REMOVE_MEMBER'; payload: { memberId: string } }
   | { type: 'SYNC_STATE'; payload: BoardState }
-  | { type: 'UPDATE_BOARD'; payload: Partial<Board> & { id: string } };
+  | { type: 'UPDATE_BOARD'; payload: Partial<BoardMeta> };

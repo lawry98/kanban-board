@@ -53,7 +53,7 @@ export function HeroSection() {
             Get started for free
           </InteractiveHoverButton>
           <Button size="lg" variant="outline" className="h-11 px-7" asChild>
-            <a href="#preview">See it in action</a>
+            <a href="#preview">See a preview</a>
           </Button>
         </div>
         <p className="text-muted-foreground mt-3 text-xs">Free to use · No credit card required</p>

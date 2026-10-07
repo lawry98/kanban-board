@@ -19,40 +19,64 @@ import { getActivityLogs } from '@/app/actions/task-actions';
 import type { ActivityLogWithProfile } from '@/app/actions/task-actions';
 import type { Action, Prisma } from '@prisma/client';
 
-const ACTION_DESCRIPTIONS: Record<Action, (meta: Record<string, string>) => string> = {
-  BOARD_CREATED: (meta) => `created board "${meta.title ?? 'Untitled'}"`,
-  BOARD_UPDATED: (meta) =>
-    meta.title ? `renamed the board to "${meta.title}"` : 'updated the board',
-  BOARD_DELETED: (meta) => `deleted board "${meta.title ?? 'Untitled'}"`,
-  TASK_CREATED: (meta) => `created task "${meta.title ?? 'Untitled'}"`,
-  TASK_MOVED: (meta) =>
-    `moved "${meta.taskTitle ?? 'a task'}" from ${meta.fromColumn ?? '?'} to ${meta.toColumn ?? '?'}`,
+interface ActivityMeta {
+  /** Scalar metadata values, stringified. */
+  values: Record<string, string>;
+  /** `fields` written by *_UPDATED actions: which inputs the edit touched. */
+  fields: string[];
+}
+
+/** Board writers used `boardTitle` before they switched to `title`; rows of both shapes exist. */
+function boardTitle({ values }: ActivityMeta): string | undefined {
+  return values.title ?? values.boardTitle;
+}
+
+const ACTION_DESCRIPTIONS: Record<Action, (meta: ActivityMeta) => string> = {
+  BOARD_CREATED: (meta) => `created board "${boardTitle(meta) ?? 'Untitled'}"`,
+  // `updateBoard` always logs the board's current title, so only `fields` says what changed.
+  BOARD_UPDATED: (meta) => {
+    const title = boardTitle(meta);
+    if (title && meta.fields.includes('title')) return `renamed the board to "${title}"`;
+    if (meta.fields.includes('description')) return 'updated the board description';
+    return 'updated the board';
+  },
+  BOARD_DELETED: (meta) => `deleted board "${boardTitle(meta) ?? 'Untitled'}"`,
+  TASK_CREATED: ({ values }) => `created task "${values.title ?? 'Untitled'}"`,
+  TASK_MOVED: ({ values }) =>
+    `moved "${values.taskTitle ?? 'a task'}" from ${values.fromColumn ?? '?'} to ${values.toColumn ?? '?'}`,
   TASK_UPDATED: () => 'updated a task',
-  TASK_DELETED: (meta) => `deleted task "${meta.title ?? 'Untitled'}"`,
-  // Note: this previously fell back to `meta.boardTitle`, a key no writer ever
-  // emits. Board-level events now have their own BOARD_* actions.
-  COLUMN_CREATED: (meta) => `created column "${meta.title ?? 'Untitled'}"`,
+  TASK_DELETED: ({ values }) => `deleted task "${values.title ?? 'Untitled'}"`,
+  COLUMN_CREATED: ({ values }) =>
+    // Before BOARD_CREATED existed, board creation was logged as COLUMN_CREATED { boardTitle }.
+    values.title === undefined && values.boardTitle !== undefined
+      ? `created board "${values.boardTitle}"`
+      : `created column "${values.title ?? 'Untitled'}"`,
   COLUMN_UPDATED: () => 'updated a column',
-  COLUMN_DELETED: (meta) => `deleted column "${meta.title ?? 'Untitled'}"`,
-  MEMBER_ADDED: (meta) =>
-    `added ${meta.email ?? 'a member'} as ${meta.role?.toLowerCase() ?? 'member'}`,
+  COLUMN_DELETED: ({ values }) => `deleted column "${values.title ?? 'Untitled'}"`,
+  MEMBER_ADDED: ({ values }) =>
+    `added ${values.email ?? 'a member'} as ${values.role?.toLowerCase() ?? 'member'}`,
   MEMBER_REMOVED: () => 'removed a member',
-  MEMBER_ROLE_CHANGED: (meta) =>
-    `changed ${meta.email ?? 'a member'}'s role to ${meta.role?.toLowerCase() ?? 'member'}`,
+  MEMBER_ROLE_CHANGED: ({ values }) =>
+    `changed ${values.email ?? 'a member'}'s role to ${values.role?.toLowerCase() ?? 'member'}`,
 };
 
 /**
  * `metadata` is `Json`, so nothing guarantees its shape. Flatten the scalar
- * entries to strings and drop everything else instead of casting blindly.
+ * entries to strings, keep the string entries of an array `fields`, and drop
+ * everything else instead of casting blindly.
  */
-function toMetaRecord(metadata: Prisma.JsonValue): Record<string, string> {
-  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return {};
-  const record: Record<string, string> = {};
+function toActivityMeta(metadata: Prisma.JsonValue): ActivityMeta {
+  const meta: ActivityMeta = { values: {}, fields: [] };
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return meta;
   for (const [key, value] of Object.entries(metadata)) {
-    if (typeof value === 'string') record[key] = value;
-    else if (typeof value === 'number' || typeof value === 'boolean') record[key] = String(value);
+    if (typeof value === 'string') meta.values[key] = value;
+    else if (typeof value === 'number' || typeof value === 'boolean') {
+      meta.values[key] = String(value);
+    } else if (key === 'fields' && Array.isArray(value)) {
+      meta.fields = value.filter((field): field is string => typeof field === 'string');
+    }
   }
-  return record;
+  return meta;
 }
 
 // Static loading placeholders — named keys rather than array indices.
@@ -119,10 +143,10 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
             <div className="space-y-4 pr-4">
               {LOG_PLACEHOLDERS.map((key) => (
                 <div key={key} className="flex gap-3">
-                  <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
+                  <Skeleton className="h-7 w-7 shrink-0 rounded-full motion-reduce:animate-none" />
                   <div className="flex-1 space-y-1">
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-2/3" />
+                    <Skeleton className="h-3 w-full motion-reduce:animate-none" />
+                    <Skeleton className="h-3 w-2/3 motion-reduce:animate-none" />
                   </div>
                 </div>
               ))}
@@ -140,7 +164,7 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
               {logs?.map((log) => {
                 const name = log.profile?.fullName ?? 'Unknown user';
                 const initials = name.slice(0, 2).toUpperCase();
-                const meta = toMetaRecord(log.metadata);
+                const meta = toActivityMeta(log.metadata);
                 const description = ACTION_DESCRIPTIONS[log.action]?.(meta) ?? 'did something';
 
                 return (

@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 
+import { PublicError, requireBoardAccess } from '@/lib/auth/require-access';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { PUBLIC_PROFILE_SELECT } from '@/types/board';
@@ -12,6 +13,16 @@ interface BoardPageProps {
 
 export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
   const { boardId } = await params;
+
+  // Metadata is streamed even when the page below calls notFound(), so the title needs
+  // its own membership check or the not-found response carries it to a non-member.
+  try {
+    await requireBoardAccess(boardId);
+  } catch (err) {
+    if (err instanceof PublicError) return { title: 'Board' };
+    throw err;
+  }
+
   const board = await prisma.board.findUnique({
     where: { id: boardId },
     select: { title: true },

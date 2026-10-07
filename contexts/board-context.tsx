@@ -5,6 +5,7 @@ import { createContext, useContext, useMemo, useReducer, type Dispatch } from 'r
 import type {
   BoardState,
   BoardAction,
+  BoardMeta,
   BoardWithDetails,
   BoardMemberWithProfile,
   ColumnWithTasks,
@@ -14,6 +15,12 @@ import type {
 interface BoardContextValue {
   state: BoardState;
   dispatch: Dispatch<BoardAction>;
+  /**
+   * The server snapshot the reducer was seeded from. Realtime does not keep it
+   * current (a `revalidatePath` may refresh it, but the reducer is never
+   * re-seeded), so use it only for `id`; read the live title and description
+   * from `state.meta`.
+   */
   board: BoardWithDetails;
   currentUserId: string;
   canEdit: boolean;
@@ -151,11 +158,16 @@ function reconcileMembers(
   return changed ? members : prevMembers;
 }
 
+function isSameMeta(prev: BoardMeta, next: BoardMeta): boolean {
+  return prev.title === next.title && prev.description === next.description;
+}
+
 function reconcileState(prev: BoardState, next: BoardState): BoardState {
+  const meta = isSameMeta(prev.meta, next.meta) ? prev.meta : next.meta;
   const columns = reconcileColumns(prev.columns, next.columns);
   const members = reconcileMembers(prev.members, next.members);
-  if (columns === prev.columns && members === prev.members) return prev;
-  return { columns, members };
+  if (meta === prev.meta && columns === prev.columns && members === prev.members) return prev;
+  return { meta, columns, members };
 }
 
 export function boardReducer(state: BoardState, action: BoardAction): BoardState {
@@ -345,8 +357,10 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
       };
     }
 
-    case 'UPDATE_BOARD':
-      return state; // Board metadata lives in the parent board prop
+    case 'UPDATE_BOARD': {
+      const meta = { ...state.meta, ...action.payload };
+      return isSameMeta(state.meta, meta) ? state : { ...state, meta };
+    }
 
     default:
       return state;
@@ -362,6 +376,7 @@ interface BoardProviderProps {
 
 export function BoardProvider({ children, board, currentUserId, userRole }: BoardProviderProps) {
   const [state, dispatch] = useReducer(boardReducer, {
+    meta: { title: board.title, description: board.description },
     columns: board.columns,
     members: board.members,
   });

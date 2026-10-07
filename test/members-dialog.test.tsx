@@ -1,8 +1,9 @@
+import { useEffect, type Dispatch } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { BoardMemberWithProfile, BoardWithDetails } from '@/types';
+import type { BoardAction, BoardMemberWithProfile, BoardWithDetails } from '@/types';
 import type { Role } from '@prisma/client';
 
 // Hoisted so the vi.mock factories (themselves hoisted to the top of the file) can
@@ -24,7 +25,7 @@ vi.mock('@/app/actions/board-actions', () => ({
 }));
 
 import { MembersDialog } from '@/components/board/members-dialog';
-import { BoardProvider } from '@/contexts/board-context';
+import { BoardProvider, useBoardContext } from '@/contexts/board-context';
 
 const EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
@@ -63,14 +64,31 @@ beforeAll(() => {
   Element.prototype.scrollIntoView ??= () => {};
 });
 
-function renderDialog() {
+/** Hands the provider's dispatch to the test, standing in for `useRealtime`. */
+function CaptureDispatch({
+  onDispatch,
+}: {
+  onDispatch: (dispatch: Dispatch<BoardAction>) => void;
+}) {
+  const { dispatch } = useBoardContext();
+  useEffect(() => onDispatch(dispatch), [dispatch, onDispatch]);
+  return null;
+}
+
+function renderDialog(currentUserId = 'user-1', userRole: Role = 'OWNER') {
+  const captured: { dispatch?: Dispatch<BoardAction> } = {};
   const user = userEvent.setup();
   render(
-    <BoardProvider board={board} currentUserId="user-1" userRole="OWNER">
+    <BoardProvider board={board} currentUserId={currentUserId} userRole={userRole}>
+      <CaptureDispatch
+        onDispatch={(dispatch) => {
+          captured.dispatch = dispatch;
+        }}
+      />
       <MembersDialog open onOpenChange={vi.fn()} />
     </BoardProvider>,
   );
-  return user;
+  return { captured, user };
 }
 
 function memberRow(name: string): HTMLElement {
@@ -98,7 +116,7 @@ describe('MembersDialog', () => {
 
   it('shows the changed role without waiting for a realtime resync', async () => {
     changeMemberRole.mockResolvedValue({ data: { ...editor, role: 'VIEWER' } });
-    const user = renderDialog();
+    const { user } = renderDialog();
 
     await chooseRole(user, 'Viewer');
 
@@ -111,7 +129,7 @@ describe('MembersDialog', () => {
 
   it('keeps the old role when the change fails', async () => {
     changeMemberRole.mockResolvedValue({ error: 'Failed to change member role' });
-    const user = renderDialog();
+    const { user } = renderDialog();
 
     await chooseRole(user, 'Viewer');
 
@@ -121,7 +139,7 @@ describe('MembersDialog', () => {
 
   it('drops a removed member from the list without waiting for a realtime resync', async () => {
     removeBoardMember.mockResolvedValue({ data: { id: 'member-2' } });
-    const user = renderDialog();
+    const { user } = renderDialog();
 
     await user.click(within(memberRow('Ada Lovelace')).getByRole('button', { name: 'Remove' }));
     await user.click(
@@ -135,7 +153,7 @@ describe('MembersDialog', () => {
 
   it('keeps the member listed when the removal fails', async () => {
     removeBoardMember.mockResolvedValue({ error: 'User is not a member of this board' });
-    const user = renderDialog();
+    const { user } = renderDialog();
 
     await user.click(within(memberRow('Ada Lovelace')).getByRole('button', { name: 'Remove' }));
     await user.click(
@@ -146,5 +164,25 @@ describe('MembersDialog', () => {
       expect(toastError).toHaveBeenCalledWith('User is not a member of this board'),
     );
     expect(memberNames()).toEqual(['Olive Owner (you)', 'Ada Lovelace']);
+  });
+
+  it('names the board by its live title in the leave confirmation', async () => {
+    const { captured, user } = renderDialog('user-2', 'EDITOR');
+
+    act(() =>
+      captured.dispatch?.({
+        type: 'SYNC_STATE',
+        payload: {
+          meta: { title: 'Renamed elsewhere', description: null },
+          columns: [],
+          members: board.members,
+        },
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Leave board' }));
+
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent(
+      'You will lose access to Renamed elsewhere.',
+    );
   });
 });

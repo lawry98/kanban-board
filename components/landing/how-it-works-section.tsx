@@ -21,7 +21,7 @@ const HOW_IT_WORKS = [
     step: '04',
     title: 'Collaborate live',
     description:
-      'Watch updates appear instantly as your team works. Zero conflicts, zero refreshing.',
+      'Teammates’ changes appear on your board automatically, no refresh needed. If two people edit the same field at once, the last save wins.',
   },
 ] as const;
 
