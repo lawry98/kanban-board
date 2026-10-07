@@ -169,13 +169,44 @@ describe('TaskDetailDialog field names', () => {
     mockBoardContext(false);
     render(<TaskDetailDialog task={{ ...TASK, labels: ['launch'] }} onClose={() => {}} />);
 
-    expect(screen.getByRole('textbox', { name: 'Title' })).toBeDisabled();
-    expect(screen.getByRole('textbox', { name: 'Description' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveAttribute('readonly');
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute('readonly');
     expect(screen.getByRole('combobox', { name: 'Priority' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Column' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeDisabled();
     expect(screen.getByLabelText('Due date')).toBeDisabled();
     expect(screen.queryByRole('button', { name: /Remove label/ })).not.toBeInTheDocument();
+  });
+
+  it('lets viewers Tab to the title and description and read them', async () => {
+    mockBoardContext(false);
+    const user = userEvent.setup();
+    render(
+      <TaskDetailDialog
+        task={{ ...TASK, description: 'Draft, review, publish' }}
+        onClose={() => {}}
+      />,
+    );
+    const title = screen.getByRole('textbox', { name: 'Title' });
+    const description = screen.getByRole('textbox', { name: 'Description' });
+
+    // Read-only, not disabled: a disabled field is skipped by Tab and read as dimmed.
+    expect(title).toBeEnabled();
+    expect(description).toBeEnabled();
+    title.focus();
+    expect(title).toHaveFocus();
+    await user.tab();
+    expect(description).toHaveFocus();
+    await user.type(description, ' and more');
+    expect(description).toHaveValue('Draft, review, publish');
+  });
+
+  it('does not tell viewers a field is required or invite them to add a description', () => {
+    mockBoardContext(false);
+    render(<TaskDetailDialog task={TASK} onClose={() => {}} />);
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).not.toBeRequired();
+    expect(screen.getByRole('textbox', { name: 'Description' })).not.toHaveAttribute('placeholder');
   });
 });
 

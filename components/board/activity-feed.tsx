@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -98,6 +98,9 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
   // Bumping this re-runs the load effect — that is how the Refresh/Retry button re-fetches
   // without a second fetch code path (all state updates stay inside the effect's promise).
   const [reloadKey, setReloadKey] = useState(0);
+  // The sheet opens from the parent's state, not a SheetTrigger, so Radix has no trigger to
+  // refocus on close and drops focus to <body>. Focus goes back to whatever opened it instead.
+  const openerRef = useRef<HTMLElement | null>(null);
 
   const isLoading = logs === null && error === null;
 
@@ -132,13 +135,24 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-80 sm:w-96">
+      <SheetContent
+        className="w-80 sm:w-96"
+        onOpenAutoFocus={() => {
+          // Runs before Radix moves focus into the sheet, so this is still the opener.
+          openerRef.current =
+            document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          openerRef.current?.focus();
+        }}
+      >
         <SheetHeader>
           <SheetTitle>Activity</SheetTitle>
           <SheetDescription className="sr-only">Recent changes to this board.</SheetDescription>
         </SheetHeader>
         <Separator className="my-4" />
-        <ScrollArea className="h-[calc(100vh-120px)]">
+        <ScrollArea className="h-[calc(100dvh-120px)]">
           {isLoading ? (
             <div className="space-y-4 pr-4">
               {LOG_PLACEHOLDERS.map((key) => (
@@ -173,7 +187,9 @@ export function ActivityFeed({ boardId, open, onOpenChange }: ActivityFeedProps)
                       {log.profile?.avatarUrl && (
                         <AvatarImage src={log.profile.avatarUrl} alt={name} />
                       )}
-                      <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                      <AvatarFallback className="text-foreground text-xs">
+                        {initials}
+                      </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-snug">

@@ -27,6 +27,13 @@ export function AddColumnButton() {
     addButtonRef.current?.focus();
   }, [isEditing]);
 
+  function openForm() {
+    // A create that lands after Esc closes the form a second time and sets the flag with no
+    // render to consume it; left set, it would pull focus here on the next blur-close.
+    focusAddButtonRef.current = false;
+    setIsEditing(true);
+  }
+
   function closeForm() {
     setIsEditing(false);
     setTitle('');
@@ -100,7 +107,7 @@ export function AddColumnButton() {
   return (
     <button
       ref={addButtonRef}
-      onClick={() => setIsEditing(true)}
+      onClick={openForm}
       className="text-muted-foreground hover:border-foreground/30 hover:text-foreground flex h-12 w-64 shrink-0 items-center justify-center gap-2 rounded-lg border border-dashed text-sm transition-colors"
     >
       <Plus className="h-4 w-4" />

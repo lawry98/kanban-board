@@ -170,6 +170,32 @@ describe('AddColumnButton', () => {
     expect(input).toHaveFocus();
   });
 
+  it('leaves focus where the user put it when a later empty form closes on blur', async () => {
+    let finish!: (result: { data: ColumnWithTasks }) => void;
+    createColumn.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const user = userEvent.setup();
+    render(
+      <BoardProvider board={board} currentUserId="user-1" userRole="OWNER">
+        <AddColumnButton />
+        <button>Elsewhere</button>
+      </BoardProvider>,
+    );
+
+    // Esc while the create is in flight; the create then lands and closes the form again.
+    await user.type(await openForm(user), 'Review{Enter}{Escape}');
+    await expectFocusBackOnAddColumn();
+    await act(async () => finish({ data: makeColumn('review', 'Review', 2000) }));
+
+    await openForm(user);
+    const elsewhere = screen.getByRole('button', { name: 'Elsewhere' });
+    await user.click(elsewhere);
+
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText('Column name')).not.toBeInTheDocument(),
+    );
+    expect(elsewhere).toHaveFocus();
+  });
+
   it('adds nothing and keeps the form open when the create fails', async () => {
     createColumn.mockResolvedValue({ error: 'A board can have at most 8 columns' });
 

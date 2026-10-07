@@ -70,7 +70,7 @@ lib/
 ├── sentry-flush.ts               # `flushSentryAfterResponse`: keeps a serverless function alive for Sentry's send
 ├── dates.ts                      # Due-date (calendar day) parse/format/isOverdue — pure, no I/O
 ├── drag-announcements.ts         # Screen-reader drag messages + drag-handle instructions — pure, no I/O
-├── dom-ids.ts                    # Ids a closing dialog returns focus to (card, column menu) + focusById
+├── dom-ids.ts                    # Ids a closing dialog returns focus to (card, column menu, new-board buttons) + focusById
 ├── invitations.ts                # Invite TTL, expiry and email-binding checks — pure, no I/O
 ├── rate-limit.ts                 # Postgres fixed-window limiter (`enforceRateLimit`); fails open
 ├── csp.ts                        # Per-request nonce Content-Security-Policy builder — pure
@@ -322,7 +322,9 @@ RLS is still not a second layer for Prisma traffic. Making it one would need a d
 - Always merge classes with `cn()` (`@/lib/utils`); use `cva` for variants.
 - Mobile-first; `dark:` variants; avoid arbitrary values (`[123px]`) unless there's no token.
 - **Keyboard + screen reader:** a new or changed control must be reachable by Tab and have an accessible name (tests query `getByRole(…, { name })`). Cards: Enter opens (everyone), Space drags (editors) / opens on keyup (viewers). Drag announcements come from `lib/drag-announcements.ts` — never let dnd read raw ids.
-- **Dialog focus return:** a dialog opened without a `DialogTrigger` (from a card, a menu item, a confirm) must return focus in `onCloseAutoFocus`: `event.preventDefault()` then `focusById(...)` from `lib/dom-ids.ts`. Radix otherwise has no trigger to refocus and drops focus on `<body>`.
+- **Dialog focus return:** a dialog opened without a `DialogTrigger` (from a card, a menu item, a confirm, a button elsewhere) must return focus in `onCloseAutoFocus`: `event.preventDefault()` then `focusById(...)` from `lib/dom-ids.ts`. Radix otherwise has no trigger to refocus and drops focus on `<body>`. The one exception is `ActivityFeed`, whose opener is the header's id-less Activity button: it records `document.activeElement` in `onOpenAutoFocus` (which runs before Radix moves focus) and refocuses that.
+- **Viewers read, they don't edit:** give a viewer's text fields `readOnly`, not `disabled`, so Tab reaches them and they read at full contrast; drop `required` and inviting placeholders with it.
+- **Toasts:** `<Toaster>` in `app/layout.tsx` has no `richColors`; sonner's light-mode error/success text is under 4.5:1. The type icons carry the meaning.
 
 ---
 
@@ -404,7 +406,7 @@ Configured in `.mcp.json`: `shadcn` (`pnpm dlx shadcn@latest mcp`) and `magicuid
 
 - **Realtime echo suppression** — a client resyncs on its own writes; broadcast-with-origin-id is the intended fix.
 - **`useOptimisticUpdate`** is correct and exported but not yet wired into `board-view.tsx`, which still hand-rolls its revert.
-- **Test coverage is minimal** — `boardReducer`, `useRealtime`, the board header and connection indicator, the activity feed, the analytics event/dedupe helpers, `proxy`'s route-protection (incl. unknown routes passing through to the 404 when signed in), login `next` handling and CSP headers, the CSP builder, the rate limiter, invite expiry/email binding, board-page metadata, the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404 page, both error boundaries, the auth page titles and keyboard/screen-reader behaviour (column menu, card keys, field names, scroll structure, drag announcements, dialog focus return) are covered; most Server Actions and components are not.
+- **Test coverage is minimal** — `boardReducer`, `useRealtime`, the board header and connection indicator, the activity feed, the analytics event/dedupe helpers, `proxy`'s route-protection (incl. unknown routes passing through to the 404 when signed in), login `next` handling and CSP headers, the CSP builder, the rate limiter, invite expiry/email binding, board-page metadata, the DB TLS policy, due-date handling (helpers, schema, task actions, dialog, card — pinned per time zone via `test/time-zone.ts`), the demo seed, Sentry env parsing, `toActionError` reporting, the 404 page, both error boundaries, the auth page titles and keyboard/screen-reader behaviour (column menu, card keys, field names, scroll structure, drag announcements, dialog focus return), board schema limits and the root layout's toaster are covered; most Server Actions and components are not.
 - **Browser tab title doesn't follow a live rename** — it comes from `generateMetadata` in `app/(dashboard)/board/[boardId]/page.tsx`, which is server-rendered.
 - **CSP is Report-Only, not enforced** — flip `CSP_REPORT_ONLY` in `lib/csp.ts` after a browser pass over every flow finds no violations; see "Security headers & CSP".
 - **RLS is not a second layer for Prisma traffic** — see "Grants + RLS" for what promoting it would require.

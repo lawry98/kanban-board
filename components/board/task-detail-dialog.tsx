@@ -196,8 +196,9 @@ function TaskForm({ task, onClose }: TaskFormProps) {
                 setTitle(e.target.value);
                 if (e.target.value.trim()) setTitleError(false);
               }}
-              disabled={!canEdit}
-              required
+              // Read-only, not disabled: viewers can still Tab to the field and read it.
+              readOnly={!canEdit}
+              required={canEdit}
               maxLength={MAX_TASK_TITLE_LENGTH}
               aria-invalid={titleError || undefined}
               aria-describedby={titleError ? 'task-title-error' : undefined}
@@ -217,10 +218,10 @@ function TaskForm({ task, onClose }: TaskFormProps) {
               id="task-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              disabled={!canEdit}
+              readOnly={!canEdit}
               rows={3}
               maxLength={MAX_TASK_DESCRIPTION_LENGTH}
-              placeholder="Add a description…"
+              placeholder={canEdit ? 'Add a description…' : undefined}
             />
           </div>
 

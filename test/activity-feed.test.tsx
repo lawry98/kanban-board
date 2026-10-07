@@ -30,6 +30,23 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
+describe('ActivityFeed layout', () => {
+  it('draws avatar initials in the foreground colour', async () => {
+    await renderFeedWith(makeLog('TASK_UPDATED', {}));
+
+    // muted-foreground on the fallback's muted background is 4.35:1, under AA's 4.5:1.
+    expect(await screen.findByText('AD')).toHaveClass('text-foreground');
+  });
+
+  it('sizes the list to the dynamic viewport', async () => {
+    await renderFeedWith(makeLog('TASK_UPDATED', {}));
+
+    // `vh` is the largest viewport on mobile, so the list's end hid behind the browser's bars.
+    const list = (await screen.findByText('AD')).closest('[data-slot="scroll-area"]');
+    expect(list).toHaveClass('h-[calc(100dvh-120px)]');
+  });
+});
+
 describe('ActivityFeed descriptions', () => {
   it.each([
     ['BOARD_UPDATED', { fields: ['title'], title: 'Roadmap' }, 'renamed the board to "Roadmap"'],

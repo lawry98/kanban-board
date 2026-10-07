@@ -166,6 +166,13 @@ describe('MembersDialog', () => {
     expect(memberNames()).toEqual(['Olive Owner (you)', 'Ada Lovelace']);
   });
 
+  it('draws avatar initials in the foreground colour', () => {
+    renderDialog();
+
+    // muted-foreground on the fallback's muted background is 4.35:1, under AA's 4.5:1.
+    expect(within(memberRow('Ada Lovelace')).getByText('AD')).toHaveClass('text-foreground');
+  });
+
   it('names the board by its live title in the leave confirmation', async () => {
     const { captured, user } = renderDialog('user-2', 'EDITOR');
 
