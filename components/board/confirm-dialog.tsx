@@ -25,6 +25,8 @@ interface ConfirmDialogProps {
   pendingLabel?: string;
   /** Awaited before the dialog closes, so a slow action stays visible as pending. */
   onConfirm: () => void | Promise<void>;
+  /** Where focus goes on close. There is no Radix trigger to return to (see lib/dom-ids.ts). */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 /**
@@ -43,6 +45,7 @@ export function ConfirmDialog({
   confirmLabel,
   pendingLabel = 'Working…',
   onConfirm,
+  onCloseAutoFocus,
 }: ConfirmDialogProps) {
   const [isPending, setIsPending] = useState(false);
 
@@ -59,7 +62,7 @@ export function ConfirmDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>

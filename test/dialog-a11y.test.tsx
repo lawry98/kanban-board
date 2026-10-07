@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('@/app/actions/task-actions', () => ({
   updateTask: vi.fn(),
@@ -10,8 +11,13 @@ vi.mock('@/contexts/board-context', () => ({ useBoardContext: vi.fn() }));
 
 import { ActivityFeed } from '@/components/board/activity-feed';
 import { TaskDetailDialog } from '@/components/board/task-detail-dialog';
-import { getActivityLogs } from '@/app/actions/task-actions';
+import { getActivityLogs, updateTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import {
+  MAX_LABEL_LENGTH,
+  MAX_TASK_DESCRIPTION_LENGTH,
+  MAX_TASK_TITLE_LENGTH,
+} from '@/lib/constants';
 import type { MockInstance } from 'vitest';
 import type { TaskWithAssignee } from '@/types';
 
@@ -37,9 +43,14 @@ const TASK: TaskWithAssignee = {
   creator: { id: USER_ID, fullName: 'Ada Lovelace', avatarUrl: null },
 };
 
+const MEMBER = {
+  userId: USER_ID,
+  profile: { fullName: 'Ada Lovelace', email: 'ada@example.com', avatarUrl: null },
+};
+
 function mockBoardContext(canEdit: boolean) {
   vi.mocked(useBoardContext).mockReturnValue({
-    state: { columns: [{ id: COLUMN_ID, title: 'To do' }], members: [] },
+    state: { columns: [{ id: COLUMN_ID, title: 'To do' }], members: [MEMBER] },
     dispatch: vi.fn(),
     canEdit,
   } as unknown as ReturnType<typeof useBoardContext>);
@@ -49,6 +60,17 @@ function mockBoardContext(canEdit: boolean) {
 const MISSING_DESCRIPTION = /Missing `Description`/;
 
 let warn: MockInstance<typeof console.warn>;
+
+beforeAll(() => {
+  // Radix Select calls these; jsdom implements none of them.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.scrollIntoView ??= () => {};
+});
 
 beforeEach(() => {
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -93,5 +115,92 @@ describe('dialog accessible descriptions', () => {
       'Recent changes to this board.',
     );
     expectNoMissingDescriptionWarning();
+  });
+});
+
+describe('TaskDetailDialog field names', () => {
+  it('names every field for editors', () => {
+    mockBoardContext(true);
+    render(<TaskDetailDialog task={{ ...TASK, labels: ['launch'] }} onClose={() => {}} />);
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Write launch post');
+    expect(screen.getByRole('textbox', { name: 'Title' })).toBeRequired();
+    expect(screen.getByRole('textbox', { name: 'Description' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Priority' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Column' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Due date')).toHaveAttribute('type', 'date');
+    expect(screen.getByRole('textbox', { name: 'Labels' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove label launch' })).toHaveAttribute(
+      'type',
+      'button',
+    );
+  });
+
+  it('caps each text field at its schema limit', () => {
+    mockBoardContext(true);
+    render(<TaskDetailDialog task={TASK} onClose={() => {}} />);
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveAttribute(
+      'maxlength',
+      String(MAX_TASK_TITLE_LENGTH),
+    );
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute(
+      'maxlength',
+      String(MAX_TASK_DESCRIPTION_LENGTH),
+    );
+    expect(screen.getByRole('textbox', { name: 'Labels' })).toHaveAttribute(
+      'maxlength',
+      String(MAX_LABEL_LENGTH),
+    );
+  });
+
+  it('names each assignee once, without reading out the avatar initials', async () => {
+    mockBoardContext(true);
+    const user = userEvent.setup();
+    render(<TaskDetailDialog task={TASK} onClose={() => {}} />);
+
+    await user.click(screen.getByRole('combobox', { name: 'Assignee' }));
+
+    expect(await screen.findByRole('option', { name: 'Ada Lovelace' })).toBeInTheDocument();
+  });
+
+  it('names the read-only fields for viewers', () => {
+    mockBoardContext(false);
+    render(<TaskDetailDialog task={{ ...TASK, labels: ['launch'] }} onClose={() => {}} />);
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Description' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Priority' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Column' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeDisabled();
+    expect(screen.getByLabelText('Due date')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Remove label/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailDialog empty title', () => {
+  it('flags it on Save, focuses it, and clears the message once it has text', async () => {
+    mockBoardContext(true);
+    const user = userEvent.setup();
+    render(<TaskDetailDialog task={TASK} onClose={vi.fn()} />);
+    const title = screen.getByRole('textbox', { name: 'Title' });
+    const save = screen.getByRole('button', { name: 'Save changes' });
+
+    await user.clear(title);
+    // Enabled on purpose: a disabled Save gives no reason, and isn't reachable by Tab.
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    expect(updateTask).not.toHaveBeenCalled();
+    expect(title).toHaveAttribute('aria-invalid', 'true');
+    expect(title).toHaveAccessibleDescription('Title is required');
+    expect(title).toHaveFocus();
+
+    await user.type(title, 'W');
+
+    expect(title).not.toHaveAttribute('aria-invalid');
+    expect(title).not.toHaveAccessibleDescription();
+    expect(screen.queryByText('Title is required')).not.toBeInTheDocument();
   });
 });

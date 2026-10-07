@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Droppable } from '@hello-pangea/dnd';
 import { MoreHorizontal, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,12 +15,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { ConfirmDialog } from '@/components/board/confirm-dialog';
 import { TaskCard } from '@/components/board/task-card';
 import { updateColumn, deleteColumn } from '@/app/actions/column-actions';
 import { createTask } from '@/app/actions/task-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import { MAX_COLUMN_TITLE_LENGTH, MAX_TASK_TITLE_LENGTH } from '@/lib/constants';
+import { columnActionsId, focusById } from '@/lib/dom-ids';
+import { cn } from '@/lib/utils';
 import type { ColumnWithTasks, TaskWithAssignee } from '@/types';
 
 interface ColumnProps {
@@ -29,59 +31,127 @@ interface ColumnProps {
 }
 
 export function Column({ column, onTaskClick }: ColumnProps) {
-  const { dispatch, canEdit } = useBoardContext();
+  const { state, dispatch, canEdit } = useBoardContext();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(column.title);
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const addTaskButtonRef = useRef<HTMLButtonElement>(null);
+  // Set when the composer closes by the user's choice; the Add task button only remounts
+  // on the next render, so the effect below focuses it then.
+  const focusAddTaskRef = useRef(false);
+  // Set by the menu's Rename item; the editor opens once the menu has finished closing.
+  const renameRequestedRef = useRef(false);
+  // True while the editor is closing. Moving focus off the input fires its blur, which
+  // must not save a second time (Enter) or save at all (Escape).
+  const closingTitleEditRef = useRef(false);
+  const actionsId = columnActionsId(column.id);
+  // Where focus goes when the delete confirm closes: this column's menu button, or once the
+  // column is deleted a neighbour's (null: no columns left, so leave focus be).
+  const confirmReturnFocusIdRef = useRef<string | null>(actionsId);
+  // The committed board, for a delete to read after its await (this render's may be stale).
+  const columnsRef = useRef(state.columns);
+  useEffect(() => {
+    columnsRef.current = state.columns;
+  }, [state.columns]);
 
-  async function handleRenameColumn() {
-    if (!titleValue.trim() || titleValue === column.title) {
-      setIsEditingTitle(false);
-      setTitleValue(column.title);
+  useEffect(() => {
+    if (isAddingTask || !focusAddTaskRef.current) return;
+    focusAddTaskRef.current = false;
+    addTaskButtonRef.current?.focus();
+  }, [isAddingTask]);
+
+  /** Seeds the draft from the current title: a collaborator may have renamed the column. */
+  function openRename() {
+    setTitleValue(column.title);
+    setIsEditingTitle(true);
+  }
+
+  async function handleRenameColumn({ restoreFocus = false } = {}) {
+    if (closingTitleEditRef.current) return;
+    const title = titleValue.trim();
+    if (!title || title === column.title) {
+      cancelRename({ restoreFocus });
       return;
     }
 
-    const result = await updateColumn(column.id, { title: titleValue.trim() });
-    if (result.error) {
-      toast.error(result.error);
+    closingTitleEditRef.current = true;
+    if (restoreFocus) menuTriggerRef.current?.focus();
+    try {
+      const result = await updateColumn(column.id, { title });
+      if (result.error) {
+        toast.error(result.error);
+        setTitleValue(column.title);
+      } else {
+        dispatch({ type: 'UPDATE_COLUMN', payload: { id: column.id, title } });
+      }
+    } catch (err) {
+      // The action itself rejected (offline, aborted fetch) — it never returned an { error }.
+      console.error('renameColumn failed:', err);
+      toast.error('Failed to rename column');
       setTitleValue(column.title);
-    } else {
-      dispatch({ type: 'UPDATE_COLUMN', payload: { id: column.id, title: titleValue.trim() } });
+    } finally {
+      closingTitleEditRef.current = false;
+      setIsEditingTitle(false);
     }
+  }
+
+  function cancelRename({ restoreFocus = false } = {}) {
+    closingTitleEditRef.current = true;
     setIsEditingTitle(false);
+    setTitleValue(column.title);
+    if (restoreFocus) menuTriggerRef.current?.focus();
+    closingTitleEditRef.current = false;
   }
 
   async function handleDeleteColumn() {
-    const result = await deleteColumn(column.id);
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await deleteColumn(column.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      // This column's menu button is about to go: the next column's takes focus, else the previous.
+      const columns = columnsRef.current;
+      const index = columns.findIndex((col) => col.id === column.id);
+      const neighbour = index === -1 ? undefined : (columns[index + 1] ?? columns[index - 1]);
+      confirmReturnFocusIdRef.current = neighbour ? columnActionsId(neighbour.id) : null;
+      dispatch({ type: 'DELETE_COLUMN', payload: { columnId: column.id } });
+      toast.success('Column deleted');
+    } catch (err) {
+      console.error('deleteColumn failed:', err);
+      toast.error('Failed to delete column');
     }
-    dispatch({ type: 'DELETE_COLUMN', payload: { columnId: column.id } });
-    toast.success('Column deleted');
+  }
+
+  function closeComposer() {
+    setIsAddingTask(false);
+    setNewTaskTitle('');
+    focusAddTaskRef.current = true;
   }
 
   async function handleCreateTask() {
     if (!newTaskTitle.trim() || isCreatingTask) return;
     setIsCreatingTask(true);
-
-    const result = await createTask({ columnId: column.id, title: newTaskTitle.trim() });
-    setIsCreatingTask(false);
-
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await createTask({ columnId: column.id, title: newTaskTitle.trim() });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      if (result.data) {
+        dispatch({ type: 'ADD_TASK', payload: result.data });
+      }
+      closeComposer();
+    } catch (err) {
+      console.error('createTask failed:', err);
+      toast.error('Failed to create task');
+    } finally {
+      setIsCreatingTask(false);
     }
-
-    if (result.data) {
-      dispatch({ type: 'ADD_TASK', payload: result.data });
-    }
-    setNewTaskTitle('');
-    setIsAddingTask(false);
   }
 
   return (
@@ -98,46 +168,64 @@ export function Column({ column, onTaskClick }: ColumnProps) {
 
           {isEditingTitle && canEdit ? (
             <Input
-              ref={titleInputRef}
               value={titleValue}
               onChange={(e) => setTitleValue(e.target.value)}
-              onBlur={handleRenameColumn}
+              aria-label="Column name"
+              maxLength={MAX_COLUMN_TITLE_LENGTH}
+              onBlur={() => handleRenameColumn()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRenameColumn();
-                if (e.key === 'Escape') {
-                  setIsEditingTitle(false);
-                  setTitleValue(column.title);
-                }
+                if (e.key === 'Enter') handleRenameColumn({ restoreFocus: true });
+                if (e.key === 'Escape') cancelRename({ restoreFocus: true });
               }}
               className="h-7 px-1 text-sm font-medium"
               autoFocus
             />
           ) : (
-            <h3
+            <h2
               className={`truncate text-sm font-medium ${canEdit ? 'hover:text-foreground/70 cursor-pointer' : ''}`}
-              onClick={() => canEdit && setIsEditingTitle(true)}
+              onClick={() => canEdit && openRename()}
             >
               {column.title}
-            </h3>
+            </h2>
           )}
 
           <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-xs">
             {column.tasks.length}
+            <span className="sr-only"> task{column.tasks.length === 1 ? '' : 's'}</span>
           </Badge>
         </div>
 
         {canEdit && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+              <Button
+                ref={menuTriggerRef}
+                id={actionsId}
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                aria-label={`${column.title} column actions`}
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              align="end"
+              // Our id replaces the trigger id Radix names the menu by, so name it ourselves.
+              aria-labelledby={actionsId}
+              onCloseAutoFocus={(event) => {
+                if (!renameRequestedRef.current) return;
+                renameRequestedRef.current = false;
+                // Open the editor only now: while the menu is open its focus trap pulls focus
+                // off the input, and on close Radix refocuses this trigger — either blur
+                // would end the edit before it starts.
+                event.preventDefault();
+                openRename();
+              }}
+            >
               <DropdownMenuItem
-                onClick={() => {
-                  setIsEditingTitle(true);
-                  setTimeout(() => titleInputRef.current?.focus(), 50);
+                onSelect={() => {
+                  renameRequestedRef.current = true;
                 }}
               >
                 <Pencil className="mr-2 h-4 w-4" />
@@ -146,7 +234,8 @@ export function Column({ column, onTaskClick }: ColumnProps) {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => setConfirmDeleteOpen(true)}
-                className="text-destructive focus:text-destructive"
+                // On the focused item's accent, light destructive is 4.37:1 and red-700 5.89:1.
+                className="dark:text-destructive dark:focus:text-destructive text-red-700 focus:text-red-700"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete column
@@ -156,85 +245,82 @@ export function Column({ column, onTaskClick }: ColumnProps) {
         )}
       </div>
 
-      {/* Droppable task area */}
+      {/* Task list. Its one scroll parent is the board (board-view.tsx): dnd doesn't
+          support a second scroll container here, so the list must never scroll itself. */}
       <Droppable droppableId={column.id}>
         {(provided, snapshot) => (
-          <ScrollArea
-            className={`bg-muted/30 rounded-lg border transition-colors ${
-              snapshot.isDraggingOver ? 'bg-muted/60' : ''
-            }`}
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            role="group"
+            // Not aria-labelledby the heading: the rename input replaces it while editing.
+            aria-label={column.title}
+            className={cn(
+              'bg-muted/30 flex min-h-[60px] flex-1 flex-col gap-2 rounded-lg border p-2 transition-colors',
+              snapshot.isDraggingOver && 'bg-muted/60',
+            )}
           >
-            <div
-              ref={provided.innerRef}
-              {...provided.droppableProps}
-              className="flex min-h-[60px] flex-col gap-2 p-2"
-            >
-              {column.tasks.length === 0 && !snapshot.isDraggingOver && (
-                <p className="text-muted-foreground py-4 text-center text-xs">No tasks yet</p>
-              )}
+            {column.tasks.length === 0 && !snapshot.isDraggingOver && (
+              <p className="text-muted-foreground py-4 text-center text-xs">No tasks yet</p>
+            )}
 
-              {column.tasks.map((task, index) => (
-                <TaskCard key={task.id} task={task} index={index} onClick={onTaskClick} />
-              ))}
+            {column.tasks.map((task, index) => (
+              <TaskCard key={task.id} task={task} index={index} onClick={onTaskClick} />
+            ))}
 
-              {provided.placeholder}
-            </div>
-          </ScrollArea>
+            {provided.placeholder}
+
+            {/* Add task. Inside the list so it sits right under the last card, while the list
+                still stretches to the board's full height. */}
+            {canEdit && (
+              <div>
+                {isAddingTask ? (
+                  <div className="bg-card space-y-2 rounded-lg border p-2">
+                    <Input
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateTask();
+                        if (e.key === 'Escape') closeComposer();
+                      }}
+                      placeholder="Task title…"
+                      aria-label="Task title"
+                      maxLength={MAX_TASK_TITLE_LENGTH}
+                      autoFocus
+                      // Not `disabled`: that drops focus to <body>, and on a failure the
+                      // user would have to find their way back. The handler guards reentry.
+                      readOnly={isCreatingTask}
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleCreateTask}
+                        disabled={isCreatingTask || !newTaskTitle.trim()}
+                      >
+                        {isCreatingTask ? 'Adding…' : 'Add task'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={closeComposer}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    ref={addTaskButtonRef}
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground w-full justify-start"
+                    onClick={() => setIsAddingTask(true)}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add task
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </Droppable>
-
-      {/* Add task */}
-      {canEdit && (
-        <div>
-          {isAddingTask ? (
-            <div className="bg-card space-y-2 rounded-lg border p-2">
-              <Input
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateTask();
-                  if (e.key === 'Escape') {
-                    setIsAddingTask(false);
-                    setNewTaskTitle('');
-                  }
-                }}
-                placeholder="Task title…"
-                autoFocus
-                disabled={isCreatingTask}
-              />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={handleCreateTask}
-                  disabled={isCreatingTask || !newTaskTitle.trim()}
-                >
-                  {isCreatingTask ? 'Adding…' : 'Add task'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setIsAddingTask(false);
-                    setNewTaskTitle('');
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-foreground w-full justify-start"
-              onClick={() => setIsAddingTask(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add task
-            </Button>
-          )}
-        </div>
-      )}
 
       <ConfirmDialog
         open={confirmDeleteOpen}
@@ -255,6 +341,10 @@ export function Column({ column, onTaskClick }: ColumnProps) {
         confirmLabel="Delete column"
         pendingLabel="Deleting…"
         onConfirm={handleDeleteColumn}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (confirmReturnFocusIdRef.current) focusById(confirmReturnFocusIdRef.current);
+        }}
       />
     </div>
   );

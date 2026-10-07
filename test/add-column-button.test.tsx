@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { BoardWithDetails, ColumnWithTasks } from '@/types';
@@ -55,7 +55,7 @@ function ColumnTitles() {
   );
 }
 
-async function addColumn(title: string): Promise<void> {
+function renderButton() {
   const user = userEvent.setup();
   render(
     <BoardProvider board={board} currentUserId="user-1" userRole="OWNER">
@@ -63,9 +63,22 @@ async function addColumn(title: string): Promise<void> {
       <AddColumnButton />
     </BoardProvider>,
   );
+  return user;
+}
 
+async function openForm(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
   await user.click(screen.getByRole('button', { name: 'Add column' }));
-  await user.type(screen.getByPlaceholderText('Column name'), `${title}{Enter}`);
+  return screen.getByPlaceholderText('Column name');
+}
+
+async function addColumn(title: string): Promise<void> {
+  const user = renderButton();
+  await user.type(await openForm(user), `${title}{Enter}`);
+}
+
+async function expectFocusBackOnAddColumn() {
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add column' })).toHaveFocus());
+  expect(screen.queryByPlaceholderText('Column name')).not.toBeInTheDocument();
 }
 
 function columnTitles(): string[] {
@@ -79,6 +92,10 @@ describe('AddColumnButton', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('shows the created column without waiting for a realtime resync', async () => {
     createColumn.mockResolvedValue({ data: makeColumn('review', 'Review', 2000) });
 
@@ -87,6 +104,70 @@ describe('AddColumnButton', () => {
     await waitFor(() => expect(columnTitles()).toEqual(['To do', 'Review']));
     expect(createColumn).toHaveBeenCalledWith({ boardId: 'board-1', title: 'Review' });
     expect(toastSuccess).toHaveBeenCalledWith('Column created');
+    await expectFocusBackOnAddColumn();
+  });
+
+  it('names the column name input', async () => {
+    const user = renderButton();
+    // Not just its placeholder: that vanishes once typing starts.
+    expect(await openForm(user)).toHaveAttribute('aria-label', 'Column name');
+  });
+
+  it('closes and returns focus to Add column on Escape', async () => {
+    const user = renderButton();
+    await user.type(await openForm(user), 'Review{Escape}');
+
+    await expectFocusBackOnAddColumn();
+    expect(createColumn).not.toHaveBeenCalled();
+  });
+
+  it('closes and returns focus to Add column on Cancel', async () => {
+    const user = renderButton();
+    await user.type(await openForm(user), 'Review');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await expectFocusBackOnAddColumn();
+    expect(createColumn).not.toHaveBeenCalled();
+  });
+
+  it('stays open while Tab moves from an empty name to Cancel', async () => {
+    const user = renderButton();
+    await openForm(user);
+
+    await user.tab(); // past the disabled submit button
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    await expectFocusBackOnAddColumn();
+  });
+
+  it('closes when focus leaves the form with an empty name', async () => {
+    const user = renderButton();
+    await openForm(user);
+
+    await user.click(document.body);
+
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText('Column name')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps focus in the read-only input while the create is in flight', async () => {
+    let finish!: (result: { error: string }) => void;
+    createColumn.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+
+    await addColumn('Review');
+
+    // Read-only, not disabled: a disabled input drops focus to <body>.
+    const input = screen.getByPlaceholderText('Column name');
+    expect(input).toHaveAttribute('readonly');
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+
+    await act(async () => finish({ error: 'A board can have at most 8 columns' }));
+    expect(input).not.toHaveAttribute('readonly');
+    expect(input).toHaveFocus();
   });
 
   it('adds nothing and keeps the form open when the create fails', async () => {
@@ -99,5 +180,20 @@ describe('AddColumnButton', () => {
     );
     expect(columnTitles()).toEqual(['To do']);
     expect(screen.getByPlaceholderText('Column name')).toHaveValue('Review');
+    expect(screen.getByPlaceholderText('Column name')).toHaveFocus();
+  });
+
+  it('toasts and lets the user retry when the create rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    createColumn.mockRejectedValueOnce(new Error('offline'));
+
+    await addColumn('Review');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Failed to create column'));
+    expect(consoleError).toHaveBeenCalled();
+    const input = screen.getByPlaceholderText('Column name');
+    expect(input).not.toHaveAttribute('readonly');
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('Review');
   });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { DragDropContext, type DropResult } from '@hello-pangea/dnd';
+import { DragDropContext, type DropResult, type ResponderProvided } from '@hello-pangea/dnd';
 import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -12,6 +12,13 @@ import { Column } from '@/components/board/column';
 import { TaskDetailDialog } from '@/components/board/task-detail-dialog';
 import { BoardProvider, useBoardContext } from '@/contexts/board-context';
 import { useRealtime } from '@/hooks/use-realtime';
+import { focusById, taskCardId } from '@/lib/dom-ids';
+import {
+  DRAG_HANDLE_INSTRUCTIONS,
+  announceDragEnd,
+  announceDragStart,
+  announceDragUpdate,
+} from '@/lib/drag-announcements';
 import { moveTask } from '@/app/actions/task-actions';
 import type { BoardWithDetails, TaskWithAssignee } from '@/types';
 
@@ -31,7 +38,10 @@ function BoardContent() {
 
   const realtimeStatus = useRealtime(board.id, dispatch);
 
-  async function handleDragEnd(result: DropResult) {
+  async function handleDragEnd(result: DropResult, provided: ResponderProvided) {
+    // dnd only takes an announcement synchronously, so say it before any return or await.
+    provided.announce(announceDragEnd(result, state.columns));
+
     // Cards are isDragDisabled for viewers, so this shouldn't fire for them —
     // but guard anyway: a role change mid-drag must never optimistically move a
     // card only for the server to reject it.
@@ -55,16 +65,24 @@ function BoardContent() {
     });
 
     // Server sync
-    const result2 = await moveTask({
-      taskId: draggableId,
-      targetColumnId: destination.droppableId,
-      targetIndex: destination.index,
-    });
-    if (result2.error) {
+    let error: string | undefined;
+    try {
+      const moved = await moveTask({
+        taskId: draggableId,
+        targetColumnId: destination.droppableId,
+        targetIndex: destination.index,
+      });
+      error = moved.error;
+    } catch (err) {
+      // The action itself rejected (offline, aborted fetch): revert exactly as for an { error }.
+      console.error('moveTask failed:', err);
+      error = 'Failed to move task';
+    }
+    if (error) {
       // 'Forbidden' means the caller lost edit rights (e.g. demoted to viewer
       // between render and drop) — say so rather than a generic failure.
       toast.error(
-        result2.error === 'Forbidden'
+        error === 'Forbidden'
           ? "You're a viewer — you can't move tasks on this board"
           : 'Failed to move task',
       );
@@ -79,11 +97,16 @@ function BoardContent() {
           toIndex: source.index,
         },
       });
+      // Moving back remounts the card in its old list, which drops a keyboard user's focus
+      // to <body>. Only then: never take focus from wherever the user has since moved it.
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body) focusById(taskCardId(draggableId));
+      });
     }
   }
 
   return (
-    <div className="flex h-[calc(100vh-56px)] flex-col overflow-hidden">
+    <div className="flex h-[calc(100dvh-56px)] flex-col overflow-hidden">
       <BoardHeader realtimeStatus={realtimeStatus} onOpenActivity={() => setActivityOpen(true)} />
 
       {/* First-run coaching: only while the board has columns but no tasks, and only
@@ -108,13 +131,35 @@ function BoardContent() {
         </div>
       )}
 
-      <div className="flex-1 overflow-x-auto">
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="flex h-full items-start gap-4 p-4 sm:p-6">
+      {/* The only scroll container for every column list, on both axes. @hello-pangea/dnd
+          supports one scroll parent per Droppable; a column that also scrolled would be
+          nested (dev warning, and auto-scroll + keyboard moves stop tracking the board).
+          `relative` makes it the containing block for absolutely positioned descendants
+          (`sr-only` text), which would otherwise escape it and stretch the page.
+          `data-board-scroll-container` is also a test hook. */}
+      <div className="relative flex-1 overflow-auto" data-board-scroll-container>
+        <DragDropContext
+          dragHandleUsageInstructions={DRAG_HANDLE_INSTRUCTIONS}
+          onDragStart={(start, provided) =>
+            provided.announce(announceDragStart(start, state.columns))
+          }
+          onDragUpdate={(update, provided) =>
+            provided.announce(announceDragUpdate(update, state.columns))
+          }
+          onDragEnd={handleDragEnd}
+        >
+          {/* min-h-full + items-stretch: every list spans the board's full height, so
+              wherever the board is scrolled, each column still shows a drop area (dnd
+              clips a list to its scroll parent's viewport). w-max keeps the end padding. */}
+          <div className="flex min-h-full w-max items-stretch gap-4 p-4 sm:p-6">
             {state.columns.map((column) => (
               <Column key={column.id} column={column} onTaskClick={setSelectedTask} />
             ))}
-            {canEdit && <AddColumnButton />}
+            {canEdit && (
+              <div className="self-start">
+                <AddColumnButton />
+              </div>
+            )}
           </div>
         </DragDropContext>
       </div>

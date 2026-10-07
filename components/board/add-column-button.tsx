@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { createColumn } from '@/app/actions/column-actions';
 import { useBoardContext } from '@/contexts/board-context';
+import { MAX_COLUMN_TITLE_LENGTH } from '@/lib/constants';
 
 export function AddColumnButton() {
   const { board, dispatch } = useBoardContext();
@@ -15,67 +16,80 @@ export function AddColumnButton() {
   const [title, setTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  // Set when the form closes by the user's choice; the button only remounts on the next
+  // render, so the effect below focuses it then.
+  const focusAddButtonRef = useRef(false);
+
+  useEffect(() => {
+    if (isEditing || !focusAddButtonRef.current) return;
+    focusAddButtonRef.current = false;
+    addButtonRef.current?.focus();
+  }, [isEditing]);
+
+  function closeForm() {
+    setIsEditing(false);
+    setTitle('');
+    focusAddButtonRef.current = true;
+  }
 
   async function handleSubmit() {
     if (!title.trim() || isLoading) return;
     setIsLoading(true);
+    try {
+      const result = await createColumn({ boardId: board.id, title: title.trim() });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
 
-    const result = await createColumn({ boardId: board.id, title: title.trim() });
-    setIsLoading(false);
-
-    if (result.error) {
-      toast.error(result.error);
-      return;
+      // The provider seeds its reducer from `board` only once, so `revalidatePath`
+      // never reaches local state — dispatch, or the column waits for a resync.
+      if (result.data) {
+        dispatch({ type: 'ADD_COLUMN', payload: result.data });
+      }
+      closeForm();
+      toast.success('Column created');
+    } catch (err) {
+      console.error('createColumn failed:', err);
+      toast.error('Failed to create column');
+    } finally {
+      setIsLoading(false);
     }
-
-    // The provider seeds its reducer from `board` only once, so `revalidatePath`
-    // never reaches local state — dispatch, or the column waits for a resync.
-    if (result.data) {
-      dispatch({ type: 'ADD_COLUMN', payload: result.data });
-    }
-    setTitle('');
-    setIsEditing(false);
-    toast.success('Column created');
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter') handleSubmit();
-    if (e.key === 'Escape') {
-      setIsEditing(false);
-      setTitle('');
-    }
+    if (e.key === 'Escape') closeForm();
   }
 
   if (isEditing) {
     return (
-      <div className="bg-card flex w-64 shrink-0 flex-col gap-2 rounded-lg border p-3">
+      <div
+        className="bg-card flex w-64 shrink-0 flex-col gap-2 rounded-lg border p-3"
+        onBlur={(e) => {
+          // An empty form closes once focus leaves it, not when Tab moves on to Cancel.
+          if (!title.trim() && !e.currentTarget.contains(e.relatedTarget)) setIsEditing(false);
+        }}
+      >
         <Input
           ref={inputRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={handleKeyDown}
-          onBlur={() => {
-            if (!title.trim()) {
-              setIsEditing(false);
-            }
-          }}
           placeholder="Column name"
+          aria-label="Column name"
           autoFocus
-          disabled={isLoading}
-          maxLength={100}
+          // Not `disabled`: that drops focus to <body>, and on a failure the user would
+          // have to find their way back. The handler guards reentry.
+          readOnly={isLoading}
+          maxLength={MAX_COLUMN_TITLE_LENGTH}
         />
         <div className="flex gap-2">
           <Button size="sm" onClick={handleSubmit} disabled={isLoading || !title.trim()}>
             {isLoading ? 'Adding…' : 'Add column'}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setIsEditing(false);
-              setTitle('');
-            }}
-          >
+          <Button size="sm" variant="ghost" onClick={closeForm}>
             Cancel
           </Button>
         </div>
@@ -85,6 +99,7 @@ export function AddColumnButton() {
 
   return (
     <button
+      ref={addButtonRef}
       onClick={() => setIsEditing(true)}
       className="text-muted-foreground hover:border-foreground/30 hover:text-foreground flex h-12 w-64 shrink-0 items-center justify-center gap-2 rounded-lg border border-dashed text-sm transition-colors"
     >

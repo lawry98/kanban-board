@@ -15,7 +15,7 @@ const COLUMN_PLACEHOLDERS = [
 // of the pulse with motion-reduce:animate-none.
 export default function BoardLoading() {
   return (
-    <div className="flex h-[calc(100vh-56px)] flex-col overflow-hidden">
+    <div className="flex h-[calc(100dvh-56px)] flex-col overflow-hidden">
       {/* Matches BoardHeader: stacked below sm, one row from sm. Line boxes and the
           32px buttons are sized to the real ones so nothing jumps when the board loads. */}
       <div className="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6">
